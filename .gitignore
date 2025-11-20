@@ -1,0 +1,7 @@
+*.exe
+*.o
+*.obj
+test_solution
+MySolution.tar
+.vscode/
+*.log

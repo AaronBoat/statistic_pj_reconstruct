@@ -1,0 +1,159 @@
+Using dataset: ..\data_o\data_o\glove
+Loading base vectors...
+Loading vectors... (dimension: 100)
+  Loaded 100000 vectors...
+  Loaded 200000 vectors...
+  Loaded 300000 vectors...
+  Loaded 400000 vectors...
+  Loaded 500000 vectors...
+  Loaded 600000 vectors...
+  Loaded 700000 vectors...
+  Loaded 800000 vectors...
+  Loaded 900000 vectors...
+  Loaded 1000000 vectors...
+  Loaded 1100000 vectors...
+Loaded 1192514 vectors of dimension 100
+Building HNSW index for 1192514 vectors of dimension 100
+Inserted 0 / 1192514 vectors
+Inserted 10000 / 1192514 vectors
+Inserted 20000 / 1192514 vectors
+Inserted 30000 / 1192514 vectors
+Inserted 40000 / 1192514 vectors
+Inserted 50000 / 1192514 vectors
+Inserted 60000 / 1192514 vectors
+Inserted 70000 / 1192514 vectors
+Inserted 80000 / 1192514 vectors
+Inserted 90000 / 1192514 vectors
+Inserted 100000 / 1192514 vectors
+Inserted 110000 / 1192514 vectors
+Inserted 120000 / 1192514 vectors
+Inserted 130000 / 1192514 vectors
+Inserted 140000 / 1192514 vectors
+Inserted 150000 / 1192514 vectors
+Inserted 160000 / 1192514 vectors
+Inserted 170000 / 1192514 vectors
+Inserted 180000 / 1192514 vectors
+Inserted 190000 / 1192514 vectors
+Inserted 200000 / 1192514 vectors
+Inserted 210000 / 1192514 vectors
+Inserted 220000 / 1192514 vectors
+Inserted 230000 / 1192514 vectors
+Inserted 240000 / 1192514 vectors
+Inserted 250000 / 1192514 vectors
+Inserted 260000 / 1192514 vectors
+Inserted 270000 / 1192514 vectors
+Inserted 280000 / 1192514 vectors
+Inserted 290000 / 1192514 vectors
+Inserted 300000 / 1192514 vectors
+Inserted 310000 / 1192514 vectors
+Inserted 320000 / 1192514 vectors
+Inserted 330000 / 1192514 vectors
+Inserted 340000 / 1192514 vectors
+Inserted 350000 / 1192514 vectors
+Inserted 360000 / 1192514 vectors
+Inserted 370000 / 1192514 vectors
+Inserted 380000 / 1192514 vectors
+Inserted 390000 / 1192514 vectors
+Inserted 400000 / 1192514 vectors
+Inserted 410000 / 1192514 vectors
+Inserted 420000 / 1192514 vectors
+Inserted 430000 / 1192514 vectors
+Inserted 440000 / 1192514 vectors
+Inserted 450000 / 1192514 vectors
+Inserted 460000 / 1192514 vectors
+Inserted 470000 / 1192514 vectors
+Inserted 480000 / 1192514 vectors
+Inserted 490000 / 1192514 vectors
+Inserted 500000 / 1192514 vectors
+Inserted 510000 / 1192514 vectors
+Inserted 520000 / 1192514 vectors
+Inserted 530000 / 1192514 vectors
+Inserted 540000 / 1192514 vectors
+Inserted 550000 / 1192514 vectors
+Inserted 560000 / 1192514 vectors
+Inserted 570000 / 1192514 vectors
+Inserted 580000 / 1192514 vectors
+Inserted 590000 / 1192514 vectors
+Inserted 600000 / 1192514 vectors
+Inserted 610000 / 1192514 vectors
+Inserted 620000 / 1192514 vectors
+Inserted 630000 / 1192514 vectors
+Inserted 640000 / 1192514 vectors
+Inserted 650000 / 1192514 vectors
+Inserted 660000 / 1192514 vectors
+Inserted 670000 / 1192514 vectors
+Inserted 680000 / 1192514 vectors
+Inserted 690000 / 1192514 vectors
+Inserted 700000 / 1192514 vectors
+Inserted 710000 / 1192514 vectors
+Inserted 720000 / 1192514 vectors
+Inserted 730000 / 1192514 vectors
+Inserted 740000 / 1192514 vectors
+Inserted 750000 / 1192514 vectors
+Inserted 760000 / 1192514 vectors
+Inserted 770000 / 1192514 vectors
+Inserted 780000 / 1192514 vectors
+Inserted 790000 / 1192514 vectors
+Inserted 800000 / 1192514 vectors
+Inserted 810000 / 1192514 vectors
+Inserted 820000 / 1192514 vectors
+Inserted 830000 / 1192514 vectors
+Inserted 840000 / 1192514 vectors
+Inserted 850000 / 1192514 vectors
+Inserted 860000 / 1192514 vectors
+Inserted 870000 / 1192514 vectors
+Inserted 880000 / 1192514 vectors
+Inserted 890000 / 1192514 vectors
+Inserted 900000 / 1192514 vectors
+Inserted 910000 / 1192514 vectors
+Inserted 920000 / 1192514 vectors
+Inserted 930000 / 1192514 vectors
+Inserted 940000 / 1192514 vectors
+Inserted 950000 / 1192514 vectors
+Inserted 960000 / 1192514 vectors
+Inserted 970000 / 1192514 vectors
+Inserted 980000 / 1192514 vectors
+Inserted 990000 / 1192514 vectors
+Inserted 1000000 / 1192514 vectors
+Inserted 1010000 / 1192514 vectors
+Inserted 1020000 / 1192514 vectors
+Inserted 1030000 / 1192514 vectors
+Inserted 1040000 / 1192514 vectors
+Inserted 1050000 / 1192514 vectors
+Inserted 1060000 / 1192514 vectors
+Inserted 1070000 / 1192514 vectors
+Inserted 1080000 / 1192514 vectors
+Inserted 1090000 / 1192514 vectors
+Inserted 1100000 / 1192514 vectors
+Inserted 1110000 / 1192514 vectors
+Inserted 1120000 / 1192514 vectors
+Inserted 1130000 / 1192514 vectors
+Inserted 1140000 / 1192514 vectors
+Inserted 1150000 / 1192514 vectors
+Inserted 1160000 / 1192514 vectors
+Inserted 1170000 / 1192514 vectors
+Inserted 1180000 / 1192514 vectors
+Inserted 1190000 / 1192514 vectors
+HNSW index built in 1671704 ms
+Max level: 20
+
+Build time: 1671769 ms
+
+Loading query vectors...
+Loaded 100 query vectors
+
+Loading groundtruth...
+Loaded groundtruth for 100 queries
+
+Performing searches...
+Query 0 results: 446644 1017437 120345 950152 53269 1120421 677076 1047695 174913 985321 
+Query 1 results: 329132 1110684 303179 317396 1075491 101675 973266 523580 1037209 1128578 
+Query 2 results: 777253 26920 301205 83200 601068 316874 545985 476574 578094 540948 
+Query 3 results: 311042 938768 925310 1089272 186430 793102 630568 303908 122390 113694 
+Query 4 results: 733404 496391 515727 1052952 837741 305477 544535 255889 427501 612362 
+
+Total search time: 147 ms
+Average search time: 1.47 ms
+
+Recall@1:  0.8300
+Recall@10: 0.8320
