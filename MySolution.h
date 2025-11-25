@@ -16,21 +16,12 @@ using namespace std;
 class Solution
 {
 private:
-    // Algorithm selection
-    bool use_ivf; // true for IVF, false for HNSW
-
     // HNSW parameters
     int M;               // number of connections per vertex
     int ef_construction; // size of dynamic candidate list during construction
     int ef_search;       // size of dynamic candidate list during search
     int max_level;       // maximum level
     float ml;            // level multiplier
-
-    // IVF parameters
-    int nlist;                          // number of clusters
-    int nprobe;                         // number of clusters to search
-    vector<vector<float>> centroids;    // cluster centroids
-    vector<vector<int>> inverted_lists; // inverted lists: cluster_id -> list of vector ids
 
     // Data storage
     int dimension;
@@ -46,8 +37,11 @@ private:
     // Helper structures
     mt19937 rng;
 
+    // Statistics
+    mutable long long distance_computations;
+
     // Distance calculation
-    float distance(const float *a, const float *b, int dim) const;
+    inline float distance(const float *a, const float *b, int dim) const;
 
     // HNSW methods
     int random_level();
@@ -58,12 +52,6 @@ private:
     void build_hnsw();
     void search_hnsw(const vector<float> &query, int *res);
 
-    // IVF methods
-    void build_ivf();
-    void kmeans_clustering();
-    int assign_to_nearest_centroid(const float *vec) const;
-    void search_ivf(const float *query, int *res) const;
-
 public:
     Solution();
     ~Solution();
@@ -73,6 +61,10 @@ public:
 
     void build(int d, const vector<float> &base);
     void search(const vector<float> &query, int *res);
+
+    // Statistics methods
+    long long get_distance_computations() const { return distance_computations; }
+    void reset_distance_computations() { distance_computations = 0; }
 };
 
 #endif // MY_SOLUTION_H

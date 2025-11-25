@@ -293,6 +293,12 @@ int main(int argc, char* argv[])
     cout << "Average search time: " << fixed << setprecision(2) 
          << (double)search_time / queries.size() << " ms" << endl;
     
+    // Get distance computation statistics
+    long long total_distance_computations = solution.get_distance_computations();
+    cout << "Total distance computations: " << total_distance_computations << endl;
+    cout << "Average distance computations per query: " << fixed << setprecision(2)
+         << (double)total_distance_computations / queries.size() << endl;
+    
     // Calculate recall
     if (!groundtruth.empty() && groundtruth.size() == all_results.size())
     {

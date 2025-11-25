@@ -12,111 +12,8 @@ Loading vectors... (dimension: 128)
   Loaded 900000 vectors...
   Loaded 1000000 vectors...
 Loaded 1000000 vectors of dimension 128
-Building HNSW index for 1000000 vectors of dimension 128
-Inserted 0 / 1000000 vectors
-Inserted 10000 / 1000000 vectors
-Inserted 20000 / 1000000 vectors
-Inserted 30000 / 1000000 vectors
-Inserted 40000 / 1000000 vectors
-Inserted 50000 / 1000000 vectors
-Inserted 60000 / 1000000 vectors
-Inserted 70000 / 1000000 vectors
-Inserted 80000 / 1000000 vectors
-Inserted 90000 / 1000000 vectors
-Inserted 100000 / 1000000 vectors
-Inserted 110000 / 1000000 vectors
-Inserted 120000 / 1000000 vectors
-Inserted 130000 / 1000000 vectors
-Inserted 140000 / 1000000 vectors
-Inserted 150000 / 1000000 vectors
-Inserted 160000 / 1000000 vectors
-Inserted 170000 / 1000000 vectors
-Inserted 180000 / 1000000 vectors
-Inserted 190000 / 1000000 vectors
-Inserted 200000 / 1000000 vectors
-Inserted 210000 / 1000000 vectors
-Inserted 220000 / 1000000 vectors
-Inserted 230000 / 1000000 vectors
-Inserted 240000 / 1000000 vectors
-Inserted 250000 / 1000000 vectors
-Inserted 260000 / 1000000 vectors
-Inserted 270000 / 1000000 vectors
-Inserted 280000 / 1000000 vectors
-Inserted 290000 / 1000000 vectors
-Inserted 300000 / 1000000 vectors
-Inserted 310000 / 1000000 vectors
-Inserted 320000 / 1000000 vectors
-Inserted 330000 / 1000000 vectors
-Inserted 340000 / 1000000 vectors
-Inserted 350000 / 1000000 vectors
-Inserted 360000 / 1000000 vectors
-Inserted 370000 / 1000000 vectors
-Inserted 380000 / 1000000 vectors
-Inserted 390000 / 1000000 vectors
-Inserted 400000 / 1000000 vectors
-Inserted 410000 / 1000000 vectors
-Inserted 420000 / 1000000 vectors
-Inserted 430000 / 1000000 vectors
-Inserted 440000 / 1000000 vectors
-Inserted 450000 / 1000000 vectors
-Inserted 460000 / 1000000 vectors
-Inserted 470000 / 1000000 vectors
-Inserted 480000 / 1000000 vectors
-Inserted 490000 / 1000000 vectors
-Inserted 500000 / 1000000 vectors
-Inserted 510000 / 1000000 vectors
-Inserted 520000 / 1000000 vectors
-Inserted 530000 / 1000000 vectors
-Inserted 540000 / 1000000 vectors
-Inserted 550000 / 1000000 vectors
-Inserted 560000 / 1000000 vectors
-Inserted 570000 / 1000000 vectors
-Inserted 580000 / 1000000 vectors
-Inserted 590000 / 1000000 vectors
-Inserted 600000 / 1000000 vectors
-Inserted 610000 / 1000000 vectors
-Inserted 620000 / 1000000 vectors
-Inserted 630000 / 1000000 vectors
-Inserted 640000 / 1000000 vectors
-Inserted 650000 / 1000000 vectors
-Inserted 660000 / 1000000 vectors
-Inserted 670000 / 1000000 vectors
-Inserted 680000 / 1000000 vectors
-Inserted 690000 / 1000000 vectors
-Inserted 700000 / 1000000 vectors
-Inserted 710000 / 1000000 vectors
-Inserted 720000 / 1000000 vectors
-Inserted 730000 / 1000000 vectors
-Inserted 740000 / 1000000 vectors
-Inserted 750000 / 1000000 vectors
-Inserted 760000 / 1000000 vectors
-Inserted 770000 / 1000000 vectors
-Inserted 780000 / 1000000 vectors
-Inserted 790000 / 1000000 vectors
-Inserted 800000 / 1000000 vectors
-Inserted 810000 / 1000000 vectors
-Inserted 820000 / 1000000 vectors
-Inserted 830000 / 1000000 vectors
-Inserted 840000 / 1000000 vectors
-Inserted 850000 / 1000000 vectors
-Inserted 860000 / 1000000 vectors
-Inserted 870000 / 1000000 vectors
-Inserted 880000 / 1000000 vectors
-Inserted 890000 / 1000000 vectors
-Inserted 900000 / 1000000 vectors
-Inserted 910000 / 1000000 vectors
-Inserted 920000 / 1000000 vectors
-Inserted 930000 / 1000000 vectors
-Inserted 940000 / 1000000 vectors
-Inserted 950000 / 1000000 vectors
-Inserted 960000 / 1000000 vectors
-Inserted 970000 / 1000000 vectors
-Inserted 980000 / 1000000 vectors
-Inserted 990000 / 1000000 vectors
-HNSW index built in 1357170 ms
-Max level: 18
 
-Build time: 1357233 ms
+Build time: 1138020 ms
 
 Loading query vectors...
 Loaded 100 query vectors
@@ -131,8 +28,10 @@ Query 2 results: 320780 494672 225138 731848 933744 37532 821361 210239 727288 5
 Query 3 results: 552764 552146 152059 552058 433042 556944 227290 93656 859883 937816 
 Query 4 results: 611720 611260 91607 89823 505274 69602 432543 370022 613367 521536 
 
-Total search time: 138 ms
-Average search time: 1.38 ms
+Total search time: 162 ms
+Average search time: 1.62 ms
+Total distance computations: 4655822918
+Average distance computations per query: 46558229.18
 
 Recall@1:  0.9700
-Recall@10: 0.9800
+Recall@10: 0.9940
