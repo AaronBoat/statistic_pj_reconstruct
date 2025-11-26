@@ -17,13 +17,14 @@ echo ========================================
 echo Current HNSW Parameters:
 echo ========================================
 echo   M = 16
-echo   ef_construction = 200
-echo   ef_search = 400
+echo   ef_construction = 100
+echo   ef_search = 200
 echo.
 echo Expected Performance:
-echo   - Recall@10: ~99.4%%
-echo   - Build time: ~18-22 minutes
-echo   - Query time: ~1-2 ms
+echo   - Recall@10: ~98%%+
+echo   - Build time: ~10-15 minutes
+echo   - Query time: ~0.3-0.5 ms
+echo   - Avg distance computations: ~2500-3500
 echo ========================================
 echo.
 

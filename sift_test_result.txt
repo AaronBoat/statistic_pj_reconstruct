@@ -13,7 +13,7 @@ Loading vectors... (dimension: 128)
   Loaded 1000000 vectors...
 Loaded 1000000 vectors of dimension 128
 
-Build time: 1138020 ms
+Build time: 854799 ms
 
 Loading query vectors...
 Loaded 100 query vectors
@@ -28,10 +28,10 @@ Query 2 results: 320780 494672 225138 731848 933744 37532 821361 210239 727288 5
 Query 3 results: 552764 552146 152059 552058 433042 556944 227290 93656 859883 937816 
 Query 4 results: 611720 611260 91607 89823 505274 69602 432543 370022 613367 521536 
 
-Total search time: 162 ms
-Average search time: 1.62 ms
-Total distance computations: 4655822918
-Average distance computations per query: 46558229.18
+Total search time: 125 ms
+Average search time: 1.25 ms
+Total distance computations: 377140
+Average distance computations per query: 3771.40
 
 Recall@1:  0.9700
-Recall@10: 0.9940
+Recall@10: 0.9970

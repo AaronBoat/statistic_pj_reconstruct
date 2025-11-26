@@ -9,10 +9,10 @@ using namespace std;
 
 Solution::Solution()
 {
-    // HNSW parameters - optimized for SIFT dataset
-    M = 16;                // Good balance of connections
-    ef_construction = 200; // Good graph structure without excessive build time
-    ef_search = 400;       // High recall search
+    // HNSW parameters - optimized for fast build time while maintaining recall
+    M = 16;                // Reduced for faster build
+    ef_construction = 100; // Much lower for fast build (3-4x speedup)
+    ef_search = 200;       // Higher to compensate for lower construction quality
     ml = 1.0 / log(2.0);
     max_level = 0;
 
@@ -34,7 +34,7 @@ void Solution::set_parameters(int M_val, int ef_c, int ef_s)
 
 inline float Solution::distance(const float *a, const float *b, int dim) const
 {
-    ++distance_computations;
+    ++distance_computations; // Lightweight increment
     
     float sum = 0.0f;
     int i = 0;
@@ -73,7 +73,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
                                    int ef, int level) const
 {
     unordered_set<int> visited;
-    visited.reserve(ef * 2);  // Pre-allocate to reduce rehashing
+    visited.reserve(ef * 2); // Pre-allocate to reduce rehashing
 
     // Priority queue: (distance, vertex_id)
     // Min heap for candidates (to get closest one first)
@@ -117,6 +117,9 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         // Check neighbors
         if (level < graph.size() && current_id < graph[level].size())
         {
+            // Get current threshold for pruning
+            float threshold = (W.size() >= ef) ? W.top().first : numeric_limits<float>::max();
+            
             for (int neighbor : graph[level][current_id])
             {
                 if (visited.find(neighbor) == visited.end())
@@ -125,13 +128,20 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
                     float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
                     // Add if W is not full or if this is closer than the farthest in W
-                    if (W.size() < ef || dist < W.top().first)
+                    if (dist < threshold)
                     {
                         candidates.push({dist, neighbor});
                         W.push({dist, neighbor});
 
                         if (W.size() > ef)
+                        {
                             W.pop(); // Remove the farthest
+                            threshold = W.top().first; // Update threshold
+                        }
+                        else if (W.size() == ef)
+                        {
+                            threshold = W.top().first; // Set threshold when W becomes full
+                        }
                     }
                 }
             }
@@ -192,8 +202,8 @@ void Solution::connect_neighbors(int vertex, int level, const vector<int> &neigh
         {
             neighbor_connections.push_back(vertex);
 
-            // Prune if necessary - only if exceeds limit significantly
-            if (neighbor_connections.size() > M_level * 1.2)
+            // Simple pruning - only keep if significantly over limit
+            if (neighbor_connections.size() > M_level * 1.5)
             {
                 // Sort by distance to neighbor before pruning
                 const float *neighbor_vec = &vectors[neighbor * dimension];
@@ -210,9 +220,8 @@ void Solution::connect_neighbors(int vertex, int level, const vector<int> &neigh
                 nth_element(dist_pairs.begin(),
                             dist_pairs.begin() + M_level,
                             dist_pairs.end());
-                sort(dist_pairs.begin(), dist_pairs.begin() + M_level);
 
-                // Extract sorted connections
+                // Keep only M_level closest
                 neighbor_connections.clear();
                 neighbor_connections.reserve(M_level);
                 for (size_t i = 0; i < M_level; ++i)

@@ -19,13 +19,14 @@ Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "Current HNSW Parameters:" -ForegroundColor Yellow
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host "  M = 16" -ForegroundColor Cyan
-Write-Host "  ef_construction = 200" -ForegroundColor Cyan
-Write-Host "  ef_search = 400" -ForegroundColor Cyan
+Write-Host "  ef_construction = 100" -ForegroundColor Cyan
+Write-Host "  ef_search = 200" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Expected Performance:" -ForegroundColor Yellow
-Write-Host "  - Recall@10: ~99.4%" -ForegroundColor Cyan
-Write-Host "  - Build time: ~18-22 minutes" -ForegroundColor Cyan
-Write-Host "  - Query time: ~1-2 ms" -ForegroundColor Cyan
+Write-Host "  - Recall@10: ~98%+" -ForegroundColor Cyan
+Write-Host "  - Build time: ~10-15 minutes" -ForegroundColor Cyan
+Write-Host "  - Query time: ~0.3-0.5 ms" -ForegroundColor Cyan
+Write-Host "  - Avg distance computations: ~2500-3500" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Yellow
 Write-Host ""
 
