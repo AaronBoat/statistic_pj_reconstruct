@@ -1,0 +1,3 @@
+Using dataset: ..\data_o\data_o\sift
+Loading base vectors...
+Loading vectors... (dimension: 128)

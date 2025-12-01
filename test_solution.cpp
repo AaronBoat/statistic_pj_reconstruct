@@ -264,10 +264,10 @@ int main(int argc, char *argv[])
 
     // Perform searches
     cout << "\nPerforming searches..." << endl;
-    
+
     // Reset distance computation counter before searching
     solution.reset_distance_computations();
-    
+
     auto search_start = chrono::high_resolution_clock::now();
 
     vector<vector<int>> all_results;

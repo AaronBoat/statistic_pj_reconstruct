@@ -1,234 +1,312 @@
 #!/usr/bin/env python3
 """
 Visualize SIFT Grid Search Results
-Generate heatmaps and charts from grid search CSV
+Analyze and display results from grid search CSV using only built-in libraries
 """
 
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
+import csv
 import sys
+from collections import defaultdict
 
 def load_results(filename='sift_grid_search_results.csv'):
     """Load grid search results from CSV"""
     try:
-        df = pd.read_csv(filename)
-        print(f"Loaded {len(df)} results from {filename}")
-        return df
+        results = []
+        with open(filename, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Convert numeric fields
+                results.append({
+                    'M': int(row['M']),
+                    'ef_construction': int(row['ef_construction']),
+                    'ef_search': int(row['ef_search']),
+                    'build_time_ms': float(row['build_time_ms']),
+                    'avg_search_ms': float(row['avg_search_ms']),
+                    'recall_10': float(row['recall_10']),
+                    'score': float(row['score'])
+                })
+        print(f"Loaded {len(results)} configurations from {filename}")
+        return results
     except FileNotFoundError:
         print(f"Error: {filename} not found!")
         print("Please run grid_search_sift.exe first")
         return None
+    except Exception as e:
+        print(f"Error loading file: {e}")
+        return None
 
-def plot_recall_vs_params(df):
-    """Plot Recall@10 vs parameters"""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+def analyze_parameter_impact(results):
+    """Analyze how each parameter affects performance"""
+    print("\n" + "="*70)
+    print("Parameter Impact Analysis")
+    print("="*70)
     
-    # Recall vs M
-    for ef_s in sorted(df['ef_search'].unique()):
-        data = df[df['ef_search'] == ef_s].groupby('M')['recall_10'].mean()
-        axes[0].plot(data.index, data.values, marker='o', label=f'ef_search={ef_s}')
-    axes[0].set_xlabel('M')
-    axes[0].set_ylabel('Recall@10')
-    axes[0].set_title('Recall@10 vs M')
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
+    # Group by each parameter
+    by_M = defaultdict(list)
+    by_ef_c = defaultdict(list)
+    by_ef_s = defaultdict(list)
     
-    # Recall vs ef_construction
-    for ef_s in sorted(df['ef_search'].unique()):
-        data = df[df['ef_search'] == ef_s].groupby('ef_construction')['recall_10'].mean()
-        axes[1].plot(data.index, data.values, marker='o', label=f'ef_search={ef_s}')
-    axes[1].set_xlabel('ef_construction')
-    axes[1].set_ylabel('Recall@10')
-    axes[1].set_title('Recall@10 vs ef_construction')
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3)
+    for r in results:
+        by_M[r['M']].append(r)
+        by_ef_c[r['ef_construction']].append(r)
+        by_ef_s[r['ef_search']].append(r)
     
-    # Recall vs ef_search
-    for M in sorted(df['M'].unique()):
-        data = df[df['M'] == M].groupby('ef_search')['recall_10'].mean()
-        axes[2].plot(data.index, data.values, marker='o', label=f'M={M}')
-    axes[2].set_xlabel('ef_search')
-    axes[2].set_ylabel('Recall@10')
-    axes[2].set_title('Recall@10 vs ef_search')
-    axes[2].legend()
-    axes[2].grid(True, alpha=0.3)
+    # Analyze M impact
+    print("\nImpact of M (averaged over other parameters):")
+    print("-" * 70)
+    print(f"{'M':>5} | {'Recall@10':>10} | {'Query(ms)':>10} | {'Build(s)':>10} | {'Count':>6}")
+    print("-" * 70)
+    for M in sorted(by_M.keys()):
+        configs = by_M[M]
+        avg_recall = sum(c['recall_10'] for c in configs) / len(configs)
+        avg_query = sum(c['avg_search_ms'] for c in configs) / len(configs)
+        avg_build = sum(c['build_time_ms'] for c in configs) / len(configs) / 1000
+        print(f"{M:>5} | {avg_recall:>10.4f} | {avg_query:>10.2f} | {avg_build:>10.1f} | {len(configs):>6}")
     
-    plt.tight_layout()
-    plt.savefig('sift_recall_vs_params.png', dpi=150)
-    print("Saved: sift_recall_vs_params.png")
+    # Analyze ef_construction impact
+    print("\nImpact of ef_construction (averaged over other parameters):")
+    print("-" * 70)
+    print(f"{'ef_c':>5} | {'Recall@10':>10} | {'Query(ms)':>10} | {'Build(s)':>10} | {'Count':>6}")
+    print("-" * 70)
+    for ef_c in sorted(by_ef_c.keys()):
+        configs = by_ef_c[ef_c]
+        avg_recall = sum(c['recall_10'] for c in configs) / len(configs)
+        avg_query = sum(c['avg_search_ms'] for c in configs) / len(configs)
+        avg_build = sum(c['build_time_ms'] for c in configs) / len(configs) / 1000
+        print(f"{ef_c:>5} | {avg_recall:>10.4f} | {avg_query:>10.2f} | {avg_build:>10.1f} | {len(configs):>6}")
     
-def plot_heatmaps(df):
-    """Plot heatmaps for different parameter combinations"""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    
-    # Heatmap 1: Recall@10 (M vs ef_construction, averaged over ef_search)
-    pivot1 = df.groupby(['M', 'ef_construction'])['recall_10'].mean().unstack()
-    sns.heatmap(pivot1, annot=True, fmt='.4f', cmap='RdYlGn', ax=axes[0, 0])
-    axes[0, 0].set_title('Recall@10 (M vs ef_construction)')
-    axes[0, 0].set_ylabel('M')
-    
-    # Heatmap 2: Query time (M vs ef_search, averaged over ef_construction)
-    pivot2 = df.groupby(['M', 'ef_search'])['avg_search_ms'].mean().unstack()
-    sns.heatmap(pivot2, annot=True, fmt='.2f', cmap='RdYlGn_r', ax=axes[0, 1])
-    axes[0, 1].set_title('Query Time (ms) (M vs ef_search)')
-    axes[0, 1].set_ylabel('M')
-    
-    # Heatmap 3: Build time (M vs ef_construction, averaged over ef_search)
-    pivot3 = df.groupby(['M', 'ef_construction'])['build_time_ms'].mean().unstack() / 1000
-    sns.heatmap(pivot3, annot=True, fmt='.1f', cmap='RdYlGn_r', ax=axes[1, 0])
-    axes[1, 0].set_title('Build Time (s) (M vs ef_construction)')
-    axes[1, 0].set_ylabel('M')
-    
-    # Heatmap 4: Overall score (M vs ef_search, averaged over ef_construction)
-    pivot4 = df.groupby(['M', 'ef_search'])['score'].mean().unstack()
-    sns.heatmap(pivot4, annot=True, fmt='.1f', cmap='RdYlGn', ax=axes[1, 1])
-    axes[1, 1].set_title('Overall Score (M vs ef_search)')
-    axes[1, 1].set_ylabel('M')
-    
-    plt.tight_layout()
-    plt.savefig('sift_parameter_heatmaps.png', dpi=150)
-    print("Saved: sift_parameter_heatmaps.png")
+    # Analyze ef_search impact
+    print("\nImpact of ef_search (averaged over other parameters):")
+    print("-" * 70)
+    print(f"{'ef_s':>5} | {'Recall@10':>10} | {'Query(ms)':>10} | {'Build(s)':>10} | {'Count':>6}")
+    print("-" * 70)
+    for ef_s in sorted(by_ef_s.keys()):
+        configs = by_ef_s[ef_s]
+        avg_recall = sum(c['recall_10'] for c in configs) / len(configs)
+        avg_query = sum(c['avg_search_ms'] for c in configs) / len(configs)
+        avg_build = sum(c['build_time_ms'] for c in configs) / len(configs) / 1000
+        print(f"{ef_s:>5} | {avg_recall:>10.4f} | {avg_query:>10.2f} | {avg_build:>10.1f} | {len(configs):>6}")
 
-def plot_pareto_front(df):
-    """Plot Pareto front: Recall vs Query Time"""
-    plt.figure(figsize=(10, 6))
+def find_pareto_optimal(results):
+    """Find Pareto optimal configurations (recall vs speed trade-off)"""
+    print("\n" + "="*70)
+    print("Pareto Optimal Configurations (Recall vs Query Speed)")
+    print("="*70)
     
-    # Color by M value
-    for M in sorted(df['M'].unique()):
-        subset = df[df['M'] == M]
-        plt.scatter(subset['avg_search_ms'], subset['recall_10'], 
-                   label=f'M={M}', alpha=0.6, s=50)
+    # Sort by recall descending
+    sorted_by_recall = sorted(results, key=lambda x: x['recall_10'], reverse=True)
     
-    plt.xlabel('Average Query Time (ms)')
-    plt.ylabel('Recall@10')
-    plt.title('Pareto Front: Recall@10 vs Query Time')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig('sift_pareto_front.png', dpi=150)
-    print("Saved: sift_pareto_front.png")
+    pareto = []
+    best_speed = float('inf')
+    
+    for config in sorted_by_recall:
+        if config['avg_search_ms'] < best_speed:
+            pareto.append(config)
+            best_speed = config['avg_search_ms']
+    
+    print(f"\nFound {len(pareto)} Pareto optimal configurations:")
+    print("-" * 70)
+    print(f"{'M':>3} | {'ef_c':>5} | {'ef_s':>5} | {'Recall@10':>10} | {'Query(ms)':>10} | {'Score':>8}")
+    print("-" * 70)
+    
+    for config in pareto:
+        print(f"{config['M']:>3} | {config['ef_construction']:>5} | {config['ef_search']:>5} | "
+              f"{config['recall_10']:>10.4f} | {config['avg_search_ms']:>10.2f} | {config['score']:>8.2f}")
 
-def plot_top_configurations(df, n=10):
-    """Plot top N configurations by different metrics"""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+def generate_html_report(results, filename='sift_grid_search_report.html'):
+    """Generate an HTML report with interactive table"""
+    html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SIFT Grid Search Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        h1 { color: #333; }
+        table { border-collapse: collapse; width: 100%; background: white; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background-color: #4CAF50; color: white; cursor: pointer; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        tr:hover { background-color: #ddd; }
+        .high-recall { background-color: #c8e6c9 !important; }
+        .fast-query { background-color: #bbdefb !important; }
+        .summary { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; }
+    </style>
+    <script>
+        function sortTable(n) {
+            var table = document.getElementById("resultsTable");
+            var rows = Array.from(table.rows).slice(1);
+            var dir = table.rows[0].cells[n].getAttribute('data-dir') || 'asc';
+            
+            rows.sort((a, b) => {
+                var x = parseFloat(a.cells[n].textContent);
+                var y = parseFloat(b.cells[n].textContent);
+                return dir === 'asc' ? x - y : y - x;
+            });
+            
+            dir = dir === 'asc' ? 'desc' : 'asc';
+            table.rows[0].cells[n].setAttribute('data-dir', dir);
+            
+            rows.forEach(row => table.appendChild(row));
+        }
+    </script>
+</head>
+<body>
+    <h1>SIFT Grid Search Results</h1>
+"""
     
-    # Top by Recall
-    top_recall = df.nlargest(n, 'recall_10')
-    labels = [f"M={row['M']}, ef_c={row['ef_construction']}, ef_s={row['ef_search']}" 
-              for _, row in top_recall.iterrows()]
-    axes[0].barh(range(n), top_recall['recall_10'].values)
-    axes[0].set_yticks(range(n))
-    axes[0].set_yticklabels(labels, fontsize=8)
-    axes[0].set_xlabel('Recall@10')
-    axes[0].set_title(f'Top {n} by Recall@10')
-    axes[0].invert_yaxis()
+    # Add summary statistics
+    html += '<div class="summary">\n'
+    html += f'<h2>Summary</h2>\n'
+    html += f'<p><strong>Total configurations:</strong> {len(results)}</p>\n'
     
-    # Top by Speed
-    top_speed = df.nsmallest(n, 'avg_search_ms')
-    labels = [f"M={row['M']}, ef_c={row['ef_construction']}, ef_s={row['ef_search']}" 
-              for _, row in top_speed.iterrows()]
-    axes[1].barh(range(n), top_speed['avg_search_ms'].values)
-    axes[1].set_yticks(range(n))
-    axes[1].set_yticklabels(labels, fontsize=8)
-    axes[1].set_xlabel('Query Time (ms)')
-    axes[1].set_title(f'Top {n} by Query Speed')
-    axes[1].invert_yaxis()
+    best_recall = max(results, key=lambda x: x['recall_10'])
+    html += f'<p><strong>Best Recall@10:</strong> {best_recall["recall_10"]:.4f} '
+    html += f'(M={best_recall["M"]}, ef_c={best_recall["ef_construction"]}, ef_s={best_recall["ef_search"]})</p>\n'
     
-    # Top by Score
-    top_score = df.nlargest(n, 'score')
-    labels = [f"M={row['M']}, ef_c={row['ef_construction']}, ef_s={row['ef_search']}" 
-              for _, row in top_score.iterrows()]
-    axes[2].barh(range(n), top_score['score'].values)
-    axes[2].set_yticks(range(n))
-    axes[2].set_yticklabels(labels, fontsize=8)
-    axes[2].set_xlabel('Overall Score')
-    axes[2].set_title(f'Top {n} by Overall Score')
-    axes[2].invert_yaxis()
+    best_speed = min(results, key=lambda x: x['avg_search_ms'])
+    html += f'<p><strong>Best Query Speed:</strong> {best_speed["avg_search_ms"]:.2f}ms '
+    html += f'(M={best_speed["M"]}, ef_c={best_speed["ef_construction"]}, ef_s={best_speed["ef_search"]})</p>\n'
     
-    plt.tight_layout()
-    plt.savefig('sift_top_configurations.png', dpi=150)
-    print("Saved: sift_top_configurations.png")
+    best_score = max(results, key=lambda x: x['score'])
+    html += f'<p><strong>Best Overall Score:</strong> {best_score["score"]:.2f} '
+    html += f'(M={best_score["M"]}, ef_c={best_score["ef_construction"]}, ef_s={best_score["ef_search"]})</p>\n'
+    html += '</div>\n'
+    
+    # Add table
+    html += '<table id="resultsTable">\n<tr>\n'
+    headers = ['M', 'ef_construction', 'ef_search', 'Build Time (s)', 'Query Time (ms)', 'Recall@10', 'Score']
+    for i, header in enumerate(headers):
+        html += f'<th onclick="sortTable({i})">{header}</th>\n'
+    html += '</tr>\n'
+    
+    for r in sorted(results, key=lambda x: x['score'], reverse=True):
+        row_class = ''
+        if r['recall_10'] >= 0.98:
+            row_class = ' class="high-recall"'
+        elif r['avg_search_ms'] <= 1.0:
+            row_class = ' class="fast-query"'
+            
+        html += f'<tr{row_class}>\n'
+        html += f'<td>{r["M"]}</td>\n'
+        html += f'<td>{r["ef_construction"]}</td>\n'
+        html += f'<td>{r["ef_search"]}</td>\n'
+        html += f'<td>{r["build_time_ms"]/1000:.1f}</td>\n'
+        html += f'<td>{r["avg_search_ms"]:.2f}</td>\n'
+        html += f'<td>{r["recall_10"]:.4f}</td>\n'
+        html += f'<td>{r["score"]:.2f}</td>\n'
+        html += '</tr>\n'
+    
+    html += '</table>\n</body>\n</html>'
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(html)
+    
+    print(f"\nGenerated HTML report: {filename}")
 
-def print_summary(df):
+def print_summary(results):
     """Print summary statistics"""
-    print("\n" + "="*60)
+    print("\n" + "="*70)
     print("Summary Statistics")
-    print("="*60)
+    print("="*70)
     
-    print(f"\nTotal configurations tested: {len(df)}")
-    print(f"Recall@10 range: {df['recall_10'].min():.4f} - {df['recall_10'].max():.4f}")
-    print(f"Query time range: {df['avg_search_ms'].min():.2f}ms - {df['avg_search_ms'].max():.2f}ms")
-    print(f"Build time range: {df['build_time_ms'].min()/1000:.1f}s - {df['build_time_ms'].max()/1000:.1f}s")
+    recalls = [r['recall_10'] for r in results]
+    query_times = [r['avg_search_ms'] for r in results]
+    build_times = [r['build_time_ms']/1000 for r in results]
     
-    print("\n" + "-"*60)
+    print(f"\nTotal configurations tested: {len(results)}")
+    print(f"Recall@10 range: {min(recalls):.4f} - {max(recalls):.4f}")
+    print(f"Query time range: {min(query_times):.2f}ms - {max(query_times):.2f}ms")
+    print(f"Build time range: {min(build_times):.1f}s - {max(build_times):.1f}s")
+    
+    print("\n" + "-"*70)
     print("Best Configurations:")
-    print("-"*60)
+    print("-"*70)
     
     # Best recall
-    best_recall = df.loc[df['recall_10'].idxmax()]
-    print(f"\nBest Recall@10: {best_recall['recall_10']:.4f}")
-    print(f"  M={int(best_recall['M'])}, ef_c={int(best_recall['ef_construction'])}, ef_s={int(best_recall['ef_search'])}")
-    print(f"  Query time: {best_recall['avg_search_ms']:.2f}ms")
+    best_recall = max(results, key=lambda x: x['recall_10'])
+    print(f"\n✓ Best Recall@10: {best_recall['recall_10']:.4f}")
+    print(f"  Parameters: M={best_recall['M']}, ef_construction={best_recall['ef_construction']}, "
+          f"ef_search={best_recall['ef_search']}")
+    print(f"  Query time: {best_recall['avg_search_ms']:.2f}ms, Build time: {best_recall['build_time_ms']/1000:.1f}s")
     
     # Best speed
-    best_speed = df.loc[df['avg_search_ms'].idxmin()]
-    print(f"\nBest Query Speed: {best_speed['avg_search_ms']:.2f}ms")
-    print(f"  M={int(best_speed['M'])}, ef_c={int(best_speed['ef_construction'])}, ef_s={int(best_speed['ef_search'])}")
-    print(f"  Recall@10: {best_speed['recall_10']:.4f}")
+    best_speed = min(results, key=lambda x: x['avg_search_ms'])
+    print(f"\n✓ Best Query Speed: {best_speed['avg_search_ms']:.2f}ms")
+    print(f"  Parameters: M={best_speed['M']}, ef_construction={best_speed['ef_construction']}, "
+          f"ef_search={best_speed['ef_search']}")
+    print(f"  Recall@10: {best_speed['recall_10']:.4f}, Build time: {best_speed['build_time_ms']/1000:.1f}s")
     
     # Best score
-    best_score = df.loc[df['score'].idxmax()]
-    print(f"\nBest Overall Score: {best_score['score']:.2f}")
-    print(f"  M={int(best_score['M'])}, ef_c={int(best_score['ef_construction'])}, ef_s={int(best_score['ef_search'])}")
+    best_score = max(results, key=lambda x: x['score'])
+    print(f"\n✓ Best Overall Score: {best_score['score']:.2f}")
+    print(f"  Parameters: M={best_score['M']}, ef_construction={best_score['ef_construction']}, "
+          f"ef_search={best_score['ef_search']}")
     print(f"  Recall@10: {best_score['recall_10']:.4f}, Query time: {best_score['avg_search_ms']:.2f}ms")
     
-    # Configurations with Recall > 95%
-    high_recall = df[df['recall_10'] >= 0.95]
-    if len(high_recall) > 0:
-        print(f"\n{len(high_recall)} configurations with Recall@10 >= 95%")
-        best_fast = high_recall.loc[high_recall['avg_search_ms'].idxmin()]
-        print(f"  Fastest among them: M={int(best_fast['M'])}, ef_c={int(best_fast['ef_construction'])}, ef_s={int(best_fast['ef_search'])}")
+    # Configurations with Recall >= 98%
+    high_recall = [r for r in results if r['recall_10'] >= 0.98]
+    if high_recall:
+        print(f"\n✓ {len(high_recall)} configurations with Recall@10 >= 98%")
+        best_fast = min(high_recall, key=lambda x: x['avg_search_ms'])
+        print(f"  Fastest among them: M={best_fast['M']}, ef_construction={best_fast['ef_construction']}, "
+              f"ef_search={best_fast['ef_search']}")
         print(f"  Query time: {best_fast['avg_search_ms']:.2f}ms, Recall@10: {best_fast['recall_10']:.4f}")
+    
+    # Configurations with Recall >= 95%
+    decent_recall = [r for r in results if r['recall_10'] >= 0.95]
+    if decent_recall:
+        print(f"\n✓ {len(decent_recall)} configurations with Recall@10 >= 95%")
+
+def print_top_configs(results, n=10):
+    """Print top N configurations"""
+    print("\n" + "="*70)
+    print(f"Top {n} Configurations by Overall Score")
+    print("="*70)
+    
+    top = sorted(results, key=lambda x: x['score'], reverse=True)[:n]
+    
+    print(f"\n{'Rank':>4} | {'M':>3} | {'ef_c':>5} | {'ef_s':>5} | {'Recall':>8} | {'Query(ms)':>10} | {'Score':>8}")
+    print("-" * 70)
+    
+    for i, config in enumerate(top, 1):
+        print(f"{i:>4} | {config['M']:>3} | {config['ef_construction']:>5} | {config['ef_search']:>5} | "
+              f"{config['recall_10']:>8.4f} | {config['avg_search_ms']:>10.2f} | {config['score']:>8.2f}")
 
 def main():
     """Main function"""
-    print("SIFT Grid Search Results Visualization")
-    print("="*60)
+    print("\n" + "="*70)
+    print("SIFT Grid Search Results Analysis")
+    print("="*70)
     
     # Load results
-    df = load_results()
-    if df is None:
+    results = load_results()
+    if results is None:
         return
     
     # Print summary
-    print_summary(df)
+    print_summary(results)
     
-    # Generate plots
-    print("\n" + "="*60)
-    print("Generating visualizations...")
-    print("="*60)
+    # Print top configurations
+    print_top_configs(results, n=10)
     
+    # Analyze parameter impact
+    analyze_parameter_impact(results)
+    
+    # Find Pareto optimal
+    find_pareto_optimal(results)
+    
+    # Generate HTML report
     try:
-        plot_recall_vs_params(df)
-        plot_heatmaps(df)
-        plot_pareto_front(df)
-        plot_top_configurations(df)
-        
-        print("\n" + "="*60)
-        print("All visualizations generated successfully!")
-        print("="*60)
+        generate_html_report(results)
+        print("\n" + "="*70)
+        print("Analysis complete!")
+        print("="*70)
         print("\nGenerated files:")
-        print("  - sift_recall_vs_params.png")
-        print("  - sift_parameter_heatmaps.png")
-        print("  - sift_pareto_front.png")
-        print("  - sift_top_configurations.png")
-        
+        print("  - sift_grid_search_report.html (interactive table)")
+        print("\nOpen sift_grid_search_report.html in your browser to view results.")
     except Exception as e:
-        print(f"\nError generating plots: {e}")
-        print("Make sure matplotlib and seaborn are installed:")
-        print("  pip install matplotlib seaborn pandas")
+        print(f"\nError generating HTML report: {e}")
 
 if __name__ == "__main__":
     main()
