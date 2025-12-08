@@ -24,23 +24,23 @@ private:
     float ml;            // level multiplier
 
     // K-Means parameters
-    int num_clusters;         // Number of partitions (K)
-    int num_probe_clusters;   // How many clusters to probe during search
+    int num_clusters;       // Number of partitions (K)
+    int num_probe_clusters; // How many clusters to probe during search
 
     // Data storage
     int dimension;
     int num_vectors;
     vector<float> vectors;
-    
+
     // K-Means clustering
-    vector<vector<float>> centroids;           // [k][dim] - cluster centers
-    vector<vector<int>> cluster_assignments;   // [k] - vector IDs in each cluster
-    
+    vector<vector<float>> centroids;         // [k][dim] - cluster centers
+    vector<vector<int>> cluster_assignments; // [k] - vector IDs in each cluster
+
     // Per-partition HNSW
-    vector<int> entry_points;                  // Entry point per cluster
-    vector<int> max_levels;                    // Max level per cluster
+    vector<int> entry_points;                   // Entry point per cluster
+    vector<int> max_levels;                     // Max level per cluster
     vector<vector<vector<vector<int>>>> graphs; // [cluster][level][vertex][neighbors]
-    vector<vector<int>> vertex_levels;         // [cluster][vertex] - level assignment
+    vector<vector<int>> vertex_levels;          // [cluster][vertex] - level assignment
 
     // Helper structures
     mt19937 rng;
@@ -64,7 +64,7 @@ private:
     void select_neighbors_heuristic(vector<int> &neighbors, int M_level, int cluster_id);
     void connect_neighbors(int local_vertex, int level, const vector<int> &neighbors, int cluster_id);
     void build_hnsw_partition(int cluster_id);
-    
+
     // Search methods
     vector<int> find_nearest_clusters(const float *query, int num_probes) const;
     void search_hnsw(const vector<float> &query, int *res);

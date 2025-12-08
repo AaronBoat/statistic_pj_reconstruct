@@ -514,11 +514,11 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Grid search optimal configuration
-        // Result: 98.4% recall, 26.9min build, 1.19s search (100 queries)
+        // GLOVE: Optimized for speed AND accuracy
+        // Target: 98%+ recall, <3s total search time (30ms/query)
         M = 20;                 
-        ef_construction = 165;  
-        ef_search = 2800;
+        ef_construction = 170;  
+        ef_search = 2000;  // Balanced for speed vs accuracy
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
