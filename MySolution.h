@@ -28,12 +28,12 @@ private:
     int num_vectors;
     vector<float> vectors;
     vector<int> entry_point;
-    
+
     // Quantization parameters (optional)
     bool use_quantization;
-    vector<unsigned char> quantized_vectors;  // 8-bit quantized vectors
-    vector<float> quantization_mins;          // Min values per dimension
-    vector<float> quantization_scales;        // Scale factors per dimension
+    vector<unsigned char> quantized_vectors; // 8-bit quantized vectors
+    vector<float> quantization_mins;         // Min values per dimension
+    vector<float> quantization_scales;       // Scale factors per dimension
 
     // HNSW graph structure
     // graph[level][vertex_id] = list of neighbors
@@ -49,7 +49,7 @@ private:
     // Distance calculation
     inline float distance(const float *a, const float *b, int dim) const;
     inline float distance_quantized(int vec_id_a, const float *b) const;
-    
+
     // Quantization methods
     void build_quantization();
     void quantize_vector(const float *vec, unsigned char *quantized) const;

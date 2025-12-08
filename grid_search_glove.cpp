@@ -99,29 +99,29 @@ int main()
     cout << endl;
 
     string dataset_path = "../data_o/data_o/glove";
-    
+
     // Load data
     cout << "Loading base vectors..." << endl;
     int dimension, num_vectors;
     vector<float> base = load_vectors(dataset_path + "/base.fvecs", dimension, num_vectors);
-    
+
     // If fvecs format failed, try txt format
     if (num_vectors == 0)
     {
         base = load_vectors(dataset_path + "/base.txt", dimension, num_vectors);
     }
-    
+
     cout << "Loaded " << num_vectors << " vectors of dimension " << dimension << endl;
 
     cout << "Loading query vectors..." << endl;
     int query_dim, num_queries;
     vector<float> queries = load_vectors(dataset_path + "/query.fvecs", query_dim, num_queries);
-    
+
     if (num_queries == 0)
     {
         queries = load_vectors(dataset_path + "/query.txt", query_dim, num_queries);
     }
-    
+
     cout << "Loaded " << num_queries << " queries" << endl;
 
     cout << "Loading groundtruth..." << endl;
@@ -134,7 +134,7 @@ int main()
     vector<int> ef_search_values = {1500, 2000, 2500, 3000};
 
     vector<GridResult> results;
-    
+
     // Open CSV file
     ofstream csv_file("glove_grid_search_results.csv");
     csv_file << "M,ef_construction,ef_search,build_time_sec,recall,avg_search_ms,avg_dist_comp,meets_98%" << endl;
@@ -168,23 +168,23 @@ int main()
                 // Check if build time exceeds limit
                 if (build_time > 1800) // 30 minutes
                 {
-                    cout << "SKIP (build time " << (int)(build_time/60) << "min > 30min)" << endl;
+                    cout << "SKIP (build time " << (int)(build_time / 60) << "min > 30min)" << endl;
                     continue;
                 }
 
                 // Search
                 vector<vector<int>> search_results(num_queries, vector<int>(10));
                 solution.reset_distance_computations();
-                
+
                 auto search_start = chrono::high_resolution_clock::now();
                 for (int i = 0; i < num_queries; ++i)
                 {
                     vector<float> query(queries.begin() + i * dimension,
-                                       queries.begin() + (i + 1) * dimension);
+                                        queries.begin() + (i + 1) * dimension);
                     solution.search(query, search_results[i].data());
                 }
                 auto search_end = chrono::high_resolution_clock::now();
-                
+
                 double total_search_ms = chrono::duration<double, milli>(search_end - search_start).count();
                 double avg_search_ms = total_search_ms / num_queries;
                 long long total_dist_comp = solution.get_distance_computations();
@@ -208,7 +208,7 @@ int main()
                 cout << "Build: " << (int)build_time << "s, ";
                 cout << "Recall: " << fixed << setprecision(2) << recall * 100 << "%, ";
                 cout << "Search: " << fixed << setprecision(2) << avg_search_ms << "ms";
-                
+
                 if (recall >= 0.98)
                 {
                     cout << " ✓" << endl;
@@ -220,11 +220,11 @@ int main()
 
                 // Write to CSV
                 csv_file << M << "," << ef_c << "," << ef_s << ","
-                        << (int)build_time << ","
-                        << fixed << setprecision(4) << recall << ","
-                        << fixed << setprecision(2) << avg_search_ms << ","
-                        << avg_dist_comp << ","
-                        << (recall >= 0.98 ? "YES" : "NO") << endl;
+                         << (int)build_time << ","
+                         << fixed << setprecision(4) << recall << ","
+                         << fixed << setprecision(2) << avg_search_ms << ","
+                         << avg_dist_comp << ","
+                         << (recall >= 0.98 ? "YES" : "NO") << endl;
                 csv_file.flush();
             }
         }
@@ -240,7 +240,7 @@ int main()
     // Find best configurations
     cout << "Top 5 configurations meeting 98% recall:" << endl;
     cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << endl;
-    
+
     // Filter and sort by search time
     vector<GridResult> valid_results;
     for (const auto &r : results)
@@ -252,15 +252,17 @@ int main()
     }
 
     sort(valid_results.begin(), valid_results.end(),
-         [](const GridResult &a, const GridResult &b) {
+         [](const GridResult &a, const GridResult &b)
+         {
              return a.avg_search_ms < b.avg_search_ms;
          });
 
     int count = 0;
     for (const auto &r : valid_results)
     {
-        if (count >= 5) break;
-        cout << ++count << ". M=" << r.M << ", ef_c=" << r.ef_construction 
+        if (count >= 5)
+            break;
+        cout << ++count << ". M=" << r.M << ", ef_c=" << r.ef_construction
              << ", ef_s=" << r.ef_search << endl;
         cout << "   Build: " << (int)r.build_time_sec << "s, "
              << "Recall: " << fixed << setprecision(2) << r.recall * 100 << "%, "
@@ -274,12 +276,13 @@ int main()
         cout << endl;
         cout << "Best recall achieved:" << endl;
         auto best = max_element(results.begin(), results.end(),
-                               [](const GridResult &a, const GridResult &b) {
-                                   return a.recall < b.recall;
-                               });
+                                [](const GridResult &a, const GridResult &b)
+                                {
+                                    return a.recall < b.recall;
+                                });
         if (best != results.end())
         {
-            cout << "M=" << best->M << ", ef_c=" << best->ef_construction 
+            cout << "M=" << best->M << ", ef_c=" << best->ef_construction
                  << ", ef_s=" << best->ef_search << endl;
             cout << "Recall: " << fixed << setprecision(2) << best->recall * 100 << "%" << endl;
         }
