@@ -17,7 +17,7 @@
 - 代码中不出现中文，但是和我的对话始终使用中文
 - 最终提交文件：mysolution.cpp 和 mysolution.h ，打包成压缩包，其中不能含有任何cout
 - 最终接口：class solution: 
-1. void build(int d, const vector<float>& base) d是向量维度，base是底库向量
+1. void build(int d, const vector<float>& base) d是向量维度，base是底库向量P
 2. void search(const vector<float>& query, int* res)
 - 网格化调参并且生成表格来存放调参结果
 
@@ -35,3 +35,4 @@
   在glove上达到98%的平局距离比较次数为20042；
   在glove上达到99%的平局距离比较次数为33011；
   以上给大家参考
+  
