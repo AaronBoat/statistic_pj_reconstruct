@@ -34,7 +34,7 @@ Solution::Solution()
     max_level = 0;
 
     distance_computations = 0;
-    use_quantization = false;  // Disabled by default
+    use_quantization = false; // Disabled by default
     rng.seed(42);
 }
 
@@ -58,7 +58,7 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
     // AVX-512: Process 16 floats at a time
     __m512 sum = _mm512_setzero_ps();
     int i = 0;
-    
+
     for (; i + 16 <= dim; i += 16)
     {
         __m512 va = _mm512_loadu_ps(a + i);
@@ -66,24 +66,24 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
         __m512 diff = _mm512_sub_ps(va, vb);
         sum = _mm512_fmadd_ps(diff, diff, sum);
     }
-    
+
     float total = _mm512_reduce_add_ps(sum);
-    
+
     // Handle remaining
     for (; i < dim; ++i)
     {
         float diff = a[i] - b[i];
         total += diff * diff;
     }
-    
+
     return total;
-    
+
 #elif defined(USE_AVX2)
     // AVX2: Process 8 floats at a time (optimized)
     __m256 sum1 = _mm256_setzero_ps();
     __m256 sum2 = _mm256_setzero_ps();
     int i = 0;
-    
+
     // Unroll by 2 for better throughput
     for (; i + 16 <= dim; i += 16)
     {
@@ -91,13 +91,13 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
         __m256 vb1 = _mm256_loadu_ps(b + i);
         __m256 diff1 = _mm256_sub_ps(va1, vb1);
         sum1 = _mm256_fmadd_ps(diff1, diff1, sum1);
-        
+
         __m256 va2 = _mm256_loadu_ps(a + i + 8);
         __m256 vb2 = _mm256_loadu_ps(b + i + 8);
         __m256 diff2 = _mm256_sub_ps(va2, vb2);
         sum2 = _mm256_fmadd_ps(diff2, diff2, sum2);
     }
-    
+
     // Process remaining 8
     for (; i + 8 <= dim; i += 8)
     {
@@ -106,10 +106,10 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
         __m256 diff = _mm256_sub_ps(va, vb);
         sum1 = _mm256_fmadd_ps(diff, diff, sum1);
     }
-    
+
     // Combine sums
     sum1 = _mm256_add_ps(sum1, sum2);
-    
+
     // Horizontal sum
     __m128 low = _mm256_castps256_ps128(sum1);
     __m128 high = _mm256_extractf128_ps(sum1, 1);
@@ -117,21 +117,21 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
     sum128 = _mm_hadd_ps(sum128, sum128);
     sum128 = _mm_hadd_ps(sum128, sum128);
     float total = _mm_cvtss_f32(sum128);
-    
+
     // Handle remaining
     for (; i < dim; ++i)
     {
         float diff = a[i] - b[i];
         total += diff * diff;
     }
-    
+
     return total;
-    
+
 #elif defined(USE_SSE2)
     // SSE2: Process 4 floats at a time
     __m128 sum = _mm_setzero_ps();
     int i = 0;
-    
+
     for (; i + 4 <= dim; i += 4)
     {
         __m128 va = _mm_loadu_ps(a + i);
@@ -140,20 +140,20 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
         __m128 sq = _mm_mul_ps(diff, diff);
         sum = _mm_add_ps(sum, sq);
     }
-    
+
     // Horizontal sum
     sum = _mm_hadd_ps(sum, sum);
     sum = _mm_hadd_ps(sum, sum);
     float total = _mm_cvtss_f32(sum);
-    
+
     for (; i < dim; ++i)
     {
         float diff = a[i] - b[i];
         total += diff * diff;
     }
-    
+
     return total;
-    
+
 #else
     // Fallback: Optimized scalar with loop unrolling
     float sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f, sum4 = 0.0f;
@@ -163,28 +163,28 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
     for (; i + 16 <= dim; i += 16)
     {
         float d0 = a[i] - b[i];
-        float d1 = a[i+1] - b[i+1];
-        float d2 = a[i+2] - b[i+2];
-        float d3 = a[i+3] - b[i+3];
-        float d4 = a[i+4] - b[i+4];
-        float d5 = a[i+5] - b[i+5];
-        float d6 = a[i+6] - b[i+6];
-        float d7 = a[i+7] - b[i+7];
-        
-        sum1 += d0*d0 + d1*d1 + d2*d2 + d3*d3;
-        sum2 += d4*d4 + d5*d5 + d6*d6 + d7*d7;
-        
-        float d8 = a[i+8] - b[i+8];
-        float d9 = a[i+9] - b[i+9];
-        float d10 = a[i+10] - b[i+10];
-        float d11 = a[i+11] - b[i+11];
-        float d12 = a[i+12] - b[i+12];
-        float d13 = a[i+13] - b[i+13];
-        float d14 = a[i+14] - b[i+14];
-        float d15 = a[i+15] - b[i+15];
-        
-        sum3 += d8*d8 + d9*d9 + d10*d10 + d11*d11;
-        sum4 += d12*d12 + d13*d13 + d14*d14 + d15*d15;
+        float d1 = a[i + 1] - b[i + 1];
+        float d2 = a[i + 2] - b[i + 2];
+        float d3 = a[i + 3] - b[i + 3];
+        float d4 = a[i + 4] - b[i + 4];
+        float d5 = a[i + 5] - b[i + 5];
+        float d6 = a[i + 6] - b[i + 6];
+        float d7 = a[i + 7] - b[i + 7];
+
+        sum1 += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        sum2 += d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
+
+        float d8 = a[i + 8] - b[i + 8];
+        float d9 = a[i + 9] - b[i + 9];
+        float d10 = a[i + 10] - b[i + 10];
+        float d11 = a[i + 11] - b[i + 11];
+        float d12 = a[i + 12] - b[i + 12];
+        float d13 = a[i + 13] - b[i + 13];
+        float d14 = a[i + 14] - b[i + 14];
+        float d15 = a[i + 15] - b[i + 15];
+
+        sum3 += d8 * d8 + d9 * d9 + d10 * d10 + d11 * d11;
+        sum4 += d12 * d12 + d13 * d13 + d14 * d14 + d15 * d15;
     }
 
     // Remaining elements
@@ -193,7 +193,7 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
         float diff = a[i] - b[i];
         sum1 += diff * diff;
     }
-    
+
     return sum1 + sum2 + sum3 + sum4;
 #endif
 }
@@ -212,30 +212,30 @@ void Solution::build_quantization()
     quantization_mins.resize(dimension);
     quantization_scales.resize(dimension);
     quantized_vectors.resize(num_vectors * dimension);
-    
+
     // Compute min/max for each dimension
     for (int d = 0; d < dimension; ++d)
     {
         float min_val = numeric_limits<float>::max();
         float max_val = numeric_limits<float>::lowest();
-        
+
         for (int i = 0; i < num_vectors; ++i)
         {
             float val = vectors[i * dimension + d];
             min_val = min(min_val, val);
             max_val = max(max_val, val);
         }
-        
+
         quantization_mins[d] = min_val;
         float range = max_val - min_val;
         quantization_scales[d] = (range > 1e-6f) ? (255.0f / range) : 1.0f;
     }
-    
+
     // Quantize all vectors
     for (int i = 0; i < num_vectors; ++i)
     {
-        quantize_vector(&vectors[i * dimension], 
-                       &quantized_vectors[i * dimension]);
+        quantize_vector(&vectors[i * dimension],
+                        &quantized_vectors[i * dimension]);
     }
 }
 
@@ -253,10 +253,10 @@ inline float Solution::distance_quantized(int vec_id_a, const float *b) const
 {
     // Asymmetric distance: quantized base vs. full-precision query
     ++distance_computations;
-    
+
     const unsigned char *qa = &quantized_vectors[vec_id_a * dimension];
     float sum = 0.0f;
-    
+
     for (int d = 0; d < dimension; ++d)
     {
         // Dequantize on the fly
@@ -264,7 +264,7 @@ inline float Solution::distance_quantized(int vec_id_a, const float *b) const
         float diff = a_val - b[d];
         sum += diff * diff;
     }
-    
+
     return sum;
 }
 
@@ -326,7 +326,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
                 if (visited.find(neighbor) == visited.end())
                 {
                     visited.insert(neighbor);
-                    
+
                     // Early pruning: compute distance only if potentially useful
                     float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
@@ -369,49 +369,49 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
 
     // Improved RobustPrune: NSG-style pruning for better graph quality
     // Key insight: Select neighbors that are both close AND provide good routing
-    
+
     const int base_vertex = neighbors[0]; // Assume first is the vertex being connected
     vector<pair<float, int>> scored_neighbors;
     scored_neighbors.reserve(neighbors.size());
-    
+
     // Score each neighbor by distance (already sorted from search_layer)
     for (int neighbor : neighbors)
     {
         float dist = distance(&vectors[base_vertex * dimension],
-                            &vectors[neighbor * dimension],
-                            dimension);
+                              &vectors[neighbor * dimension],
+                              dimension);
         scored_neighbors.push_back({dist, neighbor});
     }
-    
+
     // Sort by distance (closest first)
     sort(scored_neighbors.begin(), scored_neighbors.end());
-    
+
     // RobustPrune: Select diverse neighbors
     vector<int> selected;
     selected.reserve(M_level);
-    
+
     // Always keep closest neighbor
     if (!scored_neighbors.empty())
     {
         selected.push_back(scored_neighbors[0].second);
     }
-    
-    // Select remaining with diversity constraint  
-    const float alpha = 1.2f;  // Optimal balance for quality
-    
+
+    // Select remaining with diversity constraint
+    const float alpha = 1.2f; // Optimal balance for quality
+
     for (size_t i = 1; i < scored_neighbors.size() && (int)selected.size() < M_level; ++i)
     {
         int candidate = scored_neighbors[i].second;
         float candidate_dist = scored_neighbors[i].first;
         bool is_diverse = true;
-        
+
         // Check if candidate is diverse enough from already selected
         for (int sel : selected)
         {
             float dist_to_selected = distance(&vectors[candidate * dimension],
-                                             &vectors[sel * dimension],
-                                             dimension);
-            
+                                              &vectors[sel * dimension],
+                                              dimension);
+
             // Diversity criterion: dist(candidate, selected) > dist(base, candidate) / alpha
             if (dist_to_selected < candidate_dist / alpha)
             {
@@ -419,13 +419,13 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
                 break;
             }
         }
-        
+
         if (is_diverse)
         {
             selected.push_back(candidate);
         }
     }
-    
+
     // If not enough diverse neighbors, add closest remaining ones
     if ((int)selected.size() < M_level)
     {
@@ -440,7 +440,7 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
             }
         }
     }
-    
+
     neighbors = selected;
 }
 
@@ -518,8 +518,8 @@ void Solution::build(int d, const vector<float> &base)
     {
         // GLOVE: Balanced configuration (from grid search)
         // 98.4% recall, 25min build, optimal distance calculations
-        M = 20;                 
-        ef_construction = 165;  
+        M = 20;
+        ef_construction = 165;
         ef_search = 2800;
     }
     else if (dimension == 128 && num_vectors > 900000)
