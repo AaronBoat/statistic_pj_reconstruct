@@ -32,6 +32,7 @@ Solution::Solution()
     ef_search = 200;       // Default for SIFT
     ml = 1.0 / log(2.0);
     max_level = 0;
+    gamma = 0.19;          // NGT-inspired adaptive search threshold
 
     distance_computations = 0;
     use_quantization = false; // Disabled by default
@@ -617,3 +618,193 @@ void Solution::search_hnsw(const vector<float> &query, int *res)
         res[i] = 0;
     }
 }
+
+// ==================== NGT-Inspired Adaptive Search ====================
+
+vector<int> Solution::search_layer_adaptive(const float *query, const vector<int> &entry_points,
+                                           int ef, int level, float gamma_param) const
+{
+    unordered_set<int> visited;
+    visited.reserve(ef * 2);
+
+    auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b)
+    {
+        return a.first > b.first;
+    };
+    priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_min)> candidates(cmp_min);
+
+    auto cmp_max = [](const pair<float, int> &a, const pair<float, int> &b)
+    {
+        return a.first < b.first;
+    };
+    priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_max)> W(cmp_max);
+
+    // Initialize with entry points
+    for (int ep : entry_points)
+    {
+        float dist = distance(query, &vectors[ep * dimension], dimension);
+        candidates.push({dist, ep});
+        W.push({dist, ep});
+        visited.insert(ep);
+    }
+
+    float lower_bound = candidates.top().first;
+
+    while (!candidates.empty())
+    {
+        auto current = candidates.top();
+        candidates.pop();
+        float current_dist = current.first;
+        int current_id = current.second;
+
+        // NGT-inspired adaptive termination
+        if (W.size() >= ef)
+        {
+            float w_top = W.top().first;
+            if (current_dist > w_top * (1.0 + gamma_param))
+                break;
+        }
+
+        if (level < graph.size() && current_id < graph[level].size())
+        {
+            float threshold = (W.size() >= ef) ? W.top().first : numeric_limits<float>::max();
+
+            for (int neighbor : graph[level][current_id])
+            {
+                if (visited.find(neighbor) == visited.end())
+                {
+                    visited.insert(neighbor);
+                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
+
+                    if (dist < threshold * (1.0 + gamma_param))
+                    {
+                        candidates.push({dist, neighbor});
+                        W.push({dist, neighbor});
+
+                        if (W.size() > ef)
+                        {
+                            W.pop();
+                            threshold = W.top().first;
+                        }
+                        else if (W.size() == ef)
+                        {
+                            threshold = W.top().first;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    vector<int> result;
+    while (!W.empty())
+    {
+        result.push_back(W.top().second);
+        W.pop();
+    }
+    reverse(result.begin(), result.end());
+    return result;
+}
+
+// ==================== Graph Caching for Fast Parameter Tuning ====================
+
+bool Solution::save_graph(const string &filename) const
+{
+    ofstream out(filename, ios::binary);
+    if (!out.is_open())
+        return false;
+
+    // Write metadata
+    out.write((char *)&dimension, sizeof(int));
+    out.write((char *)&num_vectors, sizeof(int));
+    out.write((char *)&M, sizeof(int));
+    out.write((char *)&ef_construction, sizeof(int));
+    out.write((char *)&max_level, sizeof(int));
+
+    // Write entry point
+    int ep_size = entry_point.size();
+    out.write((char *)&ep_size, sizeof(int));
+    if (ep_size > 0)
+        out.write((char *)entry_point.data(), ep_size * sizeof(int));
+
+    // Write vertex levels
+    out.write((char *)vertex_level.data(), num_vectors * sizeof(int));
+
+    // Write graph structure
+    int num_levels = graph.size();
+    out.write((char *)&num_levels, sizeof(int));
+    
+    for (int level = 0; level < num_levels; ++level)
+    {
+        int level_size = graph[level].size();
+        out.write((char *)&level_size, sizeof(int));
+        
+        for (int vid = 0; vid < level_size; ++vid)
+        {
+            int neighbor_count = graph[level][vid].size();
+            out.write((char *)&neighbor_count, sizeof(int));
+            if (neighbor_count > 0)
+                out.write((char *)graph[level][vid].data(), neighbor_count * sizeof(int));
+        }
+    }
+
+    // Write vectors
+    out.write((char *)vectors.data(), vectors.size() * sizeof(float));
+
+    out.close();
+    return true;
+}
+
+bool Solution::load_graph(const string &filename)
+{
+    ifstream in(filename, ios::binary);
+    if (!in.is_open())
+        return false;
+
+    // Read metadata
+    in.read((char *)&dimension, sizeof(int));
+    in.read((char *)&num_vectors, sizeof(int));
+    in.read((char *)&M, sizeof(int));
+    in.read((char *)&ef_construction, sizeof(int));
+    in.read((char *)&max_level, sizeof(int));
+
+    // Read entry point
+    int ep_size;
+    in.read((char *)&ep_size, sizeof(int));
+    entry_point.resize(ep_size);
+    if (ep_size > 0)
+        in.read((char *)entry_point.data(), ep_size * sizeof(int));
+
+    // Read vertex levels
+    vertex_level.resize(num_vectors);
+    in.read((char *)vertex_level.data(), num_vectors * sizeof(int));
+
+    // Read graph structure
+    int num_levels;
+    in.read((char *)&num_levels, sizeof(int));
+    graph.resize(num_levels);
+    
+    for (int level = 0; level < num_levels; ++level)
+    {
+        int level_size;
+        in.read((char *)&level_size, sizeof(int));
+        graph[level].resize(level_size);
+        
+        for (int vid = 0; vid < level_size; ++vid)
+        {
+            int neighbor_count;
+            in.read((char *)&neighbor_count, sizeof(int));
+            graph[level][vid].resize(neighbor_count);
+            if (neighbor_count > 0)
+                in.read((char *)graph[level][vid].data(), neighbor_count * sizeof(int));
+        }
+    }
+
+    // Read vectors
+    vectors.resize(num_vectors * dimension);
+    in.read((char *)vectors.data(), vectors.size() * sizeof(float));
+
+    in.close();
+    return true;
+}
+
