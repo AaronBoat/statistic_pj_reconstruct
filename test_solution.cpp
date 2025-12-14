@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
             auto cache_time = chrono::duration_cast<chrono::milliseconds>(cache_end - cache_start).count();
             cout << "✓ Graph loaded from cache in " << cache_time << " ms" << endl;
             loaded_from_cache = true;
-            
+
             // Get dimension from a quick peek at base file for query loading
             ifstream peek(base_file);
             if (peek.is_open())

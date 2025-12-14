@@ -10,8 +10,6 @@
 #include <limits>
 #include <cstring>
 #include <iostream>
-#include <fstream>
-#include <string>
 
 using namespace std;
 
@@ -24,7 +22,6 @@ private:
     int ef_search;       // size of dynamic candidate list during search
     int max_level;       // maximum level
     float ml;            // level multiplier
-    float gamma;         // adaptive search threshold (NGT-inspired)
 
     // Data storage
     int dimension;
@@ -61,8 +58,6 @@ private:
     int random_level();
     vector<int> search_layer(const float *query, const vector<int> &entry_points,
                              int ef, int level) const;
-    vector<int> search_layer_adaptive(const float *query, const vector<int> &entry_points,
-                                      int ef, int level, float gamma) const;
     void select_neighbors_heuristic(vector<int> &neighbors, int M_level);
     void connect_neighbors(int vertex, int level, const vector<int> &neighbors);
     void build_hnsw();
@@ -74,7 +69,6 @@ public:
 
     // Set HNSW parameters (call before build)
     void set_parameters(int M_val, int ef_c, int ef_s);
-    void set_gamma(float gamma_val) { gamma = gamma_val; }
 
     void build(int d, const vector<float> &base);
     void search(const vector<float> &query, int *res);
@@ -82,10 +76,6 @@ public:
     // Statistics methods
     long long get_distance_computations() const { return distance_computations; }
     void reset_distance_computations() { distance_computations = 0; }
-
-    // Graph caching for fast parameter tuning (public for tuning tools)
-    bool save_graph(const string &filename) const;
-    bool load_graph(const string &filename);
 };
 
 #endif // MY_SOLUTION_H

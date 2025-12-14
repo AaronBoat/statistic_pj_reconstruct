@@ -5,3 +5,4 @@ test_solution
 MySolution.tar
 .vscode/
 *.log
+.tar
