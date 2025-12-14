@@ -205,37 +205,98 @@ int main(int argc, char *argv[])
 {
     // Default to SIFT dataset
     string dataset_dir = "../data_o/data_o/sift";
+    bool use_cache = false;
+    bool save_cache = false;
 
     if (argc > 1)
     {
         dataset_dir = argv[1];
     }
+    if (argc > 2 && string(argv[2]) == "--use-cache")
+    {
+        use_cache = true;
+    }
+    if (argc > 2 && string(argv[2]) == "--save-cache")
+    {
+        save_cache = true;
+    }
 
     string base_file = dataset_dir + "/base.txt";
     string query_file = dataset_dir + "/query.txt";
     string groundtruth_file = dataset_dir + "/groundtruth.txt";
+    string cache_file = dataset_dir + "_graph_cache.bin";
 
     cout << "Using dataset: " << dataset_dir << endl;
-    cout << "Loading base vectors..." << endl;
-    int dimension, num_vectors;
-    vector<float> base_vectors = load_base_vectors(base_file, dimension, num_vectors);
 
-    if (base_vectors.empty())
+    // Try to load cached graph first
+    Solution solution;
+    bool loaded_from_cache = false;
+    int dimension = 0, num_vectors = 0;
+
+    if (use_cache)
     {
-        cerr << "Failed to load base vectors" << endl;
-        return 1;
+        cout << "Attempting to load graph from cache: " << cache_file << endl;
+        auto cache_start = chrono::high_resolution_clock::now();
+        if (solution.load_graph(cache_file))
+        {
+            auto cache_end = chrono::high_resolution_clock::now();
+            auto cache_time = chrono::duration_cast<chrono::milliseconds>(cache_end - cache_start).count();
+            cout << "✓ Graph loaded from cache in " << cache_time << " ms" << endl;
+            loaded_from_cache = true;
+            
+            // Get dimension from a quick peek at base file for query loading
+            ifstream peek(base_file);
+            if (peek.is_open())
+            {
+                string line;
+                getline(peek, line);
+                istringstream iss(line);
+                float val;
+                while (iss >> val)
+                    dimension++;
+            }
+        }
+        else
+        {
+            cout << "✗ Failed to load cache, will build new graph..." << endl;
+        }
     }
 
-    cout << "Loaded " << num_vectors << " vectors of dimension " << dimension << endl;
+    if (!loaded_from_cache)
+    {
+        cout << "Loading base vectors..." << endl;
+        vector<float> base_vectors = load_base_vectors(base_file, dimension, num_vectors);
 
-    // Build index
-    Solution solution;
-    auto build_start = chrono::high_resolution_clock::now();
-    solution.build(dimension, base_vectors);
-    auto build_end = chrono::high_resolution_clock::now();
-    auto build_time = chrono::duration_cast<chrono::milliseconds>(build_end - build_start).count();
+        if (base_vectors.empty())
+        {
+            cerr << "Failed to load base vectors" << endl;
+            return 1;
+        }
 
-    cout << "\nBuild time: " << build_time << " ms" << endl;
+        cout << "Loaded " << num_vectors << " vectors of dimension " << dimension << endl;
+
+        // Build index
+        auto build_start = chrono::high_resolution_clock::now();
+        solution.build(dimension, base_vectors);
+        auto build_end = chrono::high_resolution_clock::now();
+        auto build_time = chrono::duration_cast<chrono::milliseconds>(build_end - build_start).count();
+
+        cout << "\nBuild time: " << build_time << " ms" << endl;
+
+        // Save cache if requested
+        if (save_cache)
+        {
+            cout << "Saving graph cache to: " << cache_file << endl;
+            if (solution.save_graph(cache_file))
+            {
+                cout << "✓ Graph cache saved successfully" << endl;
+            }
+            else
+            {
+                cout << "✗ Failed to save graph cache" << endl;
+            }
+        }
+    }
 
     // Load and search queries
     cout << "\nLoading query vectors..." << endl;

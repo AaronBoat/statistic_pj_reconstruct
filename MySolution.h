@@ -81,7 +81,7 @@ public:
     // Statistics methods
     long long get_distance_computations() const { return distance_computations; }
     void reset_distance_computations() { distance_computations = 0; }
-    
+
     // Graph caching for fast parameter tuning (public for tuning tools)
     bool save_graph(const string &filename) const;
     bool load_graph(const string &filename);

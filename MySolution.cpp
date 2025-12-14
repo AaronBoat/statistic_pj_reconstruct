@@ -32,7 +32,7 @@ Solution::Solution()
     ef_search = 200;       // Default for SIFT
     ml = 1.0 / log(2.0);
     max_level = 0;
-    gamma = 0.19;          // NGT-inspired adaptive search threshold
+    gamma = 0.19; // NGT-inspired adaptive search threshold
 
     distance_computations = 0;
     use_quantization = false; // Disabled by default
@@ -622,7 +622,7 @@ void Solution::search_hnsw(const vector<float> &query, int *res)
 // ==================== NGT-Inspired Adaptive Search ====================
 
 vector<int> Solution::search_layer_adaptive(const float *query, const vector<int> &entry_points,
-                                           int ef, int level, float gamma_param) const
+                                            int ef, int level, float gamma_param) const
 {
     unordered_set<int> visited;
     visited.reserve(ef * 2);
@@ -733,12 +733,12 @@ bool Solution::save_graph(const string &filename) const
     // Write graph structure
     int num_levels = graph.size();
     out.write((char *)&num_levels, sizeof(int));
-    
+
     for (int level = 0; level < num_levels; ++level)
     {
         int level_size = graph[level].size();
         out.write((char *)&level_size, sizeof(int));
-        
+
         for (int vid = 0; vid < level_size; ++vid)
         {
             int neighbor_count = graph[level][vid].size();
@@ -783,13 +783,13 @@ bool Solution::load_graph(const string &filename)
     int num_levels;
     in.read((char *)&num_levels, sizeof(int));
     graph.resize(num_levels);
-    
+
     for (int level = 0; level < num_levels; ++level)
     {
         int level_size;
         in.read((char *)&level_size, sizeof(int));
         graph[level].resize(level_size);
-        
+
         for (int vid = 0; vid < level_size; ++vid)
         {
             int neighbor_count;
@@ -807,4 +807,3 @@ bool Solution::load_graph(const string &filename)
     in.close();
     return true;
 }
-

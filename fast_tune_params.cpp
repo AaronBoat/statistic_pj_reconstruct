@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
     {
         cout << "Loading cached graph from: " << graph_cache_file << endl;
         auto start = chrono::high_resolution_clock::now();
-        
+
         if (sol.load_graph(graph_cache_file))
         {
             auto end = chrono::high_resolution_clock::now();
@@ -160,12 +160,13 @@ int main(int argc, char *argv[])
 
     // Fast parameter tuning
     cout << "\n========== Fast Parameter Tuning ==========" << endl;
-    cout << "Testing different ef_search values with cached graph...\n" << endl;
+    cout << "Testing different ef_search values with cached graph...\n"
+         << endl;
 
     // Test different ef_search values
     vector<int> ef_search_values = {1500, 2000, 2200, 2400, 2600, 2800, 3000, 3200, 3500};
-    
-    cout << setw(12) << "ef_search" << setw(15) << "Recall@10" << setw(18) << "Search Time(ms)" 
+
+    cout << setw(12) << "ef_search" << setw(15) << "Recall@10" << setw(18) << "Search Time(ms)"
          << setw(20) << "Avg Dist Comps" << endl;
     cout << string(65, '-') << endl;
 
@@ -175,7 +176,7 @@ int main(int argc, char *argv[])
         sol.reset_distance_computations();
 
         vector<vector<int>> results(n_query, vector<int>(10));
-        
+
         auto start = chrono::high_resolution_clock::now();
         for (int i = 0; i < n_query; ++i)
         {
@@ -188,7 +189,7 @@ int main(int argc, char *argv[])
         auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
         double avg_dist_comps = (double)sol.get_distance_computations() / n_query;
 
-        cout << setw(12) << ef_s 
+        cout << setw(12) << ef_s
              << setw(15) << fixed << setprecision(4) << recall
              << setw(18) << duration.count()
              << setw(20) << fixed << setprecision(0) << avg_dist_comps
@@ -203,8 +204,9 @@ int main(int argc, char *argv[])
     }
 
     cout << "\n========== Testing with NGT Adaptive Search ==========" << endl;
-    cout << "Using gamma=0.19 (NGT-inspired threshold)\n" << endl;
-    
+    cout << "Using gamma=0.19 (NGT-inspired threshold)\n"
+         << endl;
+
     // Note: Would need to modify search to use adaptive version
     cout << "(Adaptive search requires code modification to enable)" << endl;
 
