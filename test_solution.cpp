@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
     {
         dataset_dir = argv[1];
     }
-    
+
     // Parse command line arguments
     for (int i = 2; i < argc; ++i)
     {
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
         auto build_time = chrono::duration_cast<chrono::milliseconds>(build_end - build_start).count();
 
         cout << "\nBuild time: " << build_time << " ms" << endl;
-        
+
         // Save cache if requested
         if (save_cache)
         {
@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
             }
         }
     }
-    
+
     // Apply custom ef_search if specified
     if (custom_ef_search > 0)
     {

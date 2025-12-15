@@ -517,22 +517,14 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Multiple configuration options
-        // 
-        // Option 1: Fast build (~15-18min), may need ef_search tuning for 98% recall
-        M = 12;
-        ef_construction = 100;
-        ef_search = 3000;  // Increase ef_search to compensate for lower M
+        // GLOVE: Optimized for 98% recall with reasonable build time
+        M = 16;
+        ef_construction = 130;
+        ef_search = 2200;  // Reduced for faster search while maintaining recall
         
-        // Option 2: Balanced (~20-22min), reliable 98% recall
-        // M = 16;
-        // ef_construction = 120;
-        // ef_search = 2600;
-        
-        // Option 3: Original baseline (~26min), 98.4% recall
-        // M = 20;
-        // ef_construction = 165;
-        // ef_search = 2800;
+        // Alternative configs (comment/uncomment to switch):
+        // Fast build (~15-18min): M=12, ef_c=100, ef_s=3200 (may have lower recall)
+        // High quality (~26min): M=20, ef_c=165, ef_s=2800 (98.4% recall)
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
