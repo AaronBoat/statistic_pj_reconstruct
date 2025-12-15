@@ -75,6 +75,7 @@ public:
     // Set HNSW parameters (call before build)
     void set_parameters(int M_val, int ef_c, int ef_s);
     void set_gamma(float gamma_val) { gamma = gamma_val; }
+    void set_ef_search(int ef_s) { ef_search = ef_s; }
 
     void build(int d, const vector<float> &base);
     void search(const vector<float> &query, int *res);

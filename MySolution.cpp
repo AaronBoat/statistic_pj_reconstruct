@@ -32,7 +32,7 @@ Solution::Solution()
     ef_search = 200;       // Default for SIFT
     ml = 1.0 / log(2.0);
     max_level = 0;
-    gamma = 0.19; // NGT-inspired adaptive search threshold
+    gamma = 0.0; // Disable NGT adaptive search by default (restore baseline)
 
     distance_computations = 0;
     use_quantization = false; // Disabled by default
@@ -517,11 +517,22 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Balanced configuration (from grid search)
-        // 98.4% recall, 25min build, optimal distance calculations
-        M = 20;
-        ef_construction = 165;
-        ef_search = 2800;
+        // GLOVE: Multiple configuration options
+        // 
+        // Option 1: Fast build (~15-18min), may need ef_search tuning for 98% recall
+        M = 12;
+        ef_construction = 100;
+        ef_search = 3000;  // Increase ef_search to compensate for lower M
+        
+        // Option 2: Balanced (~20-22min), reliable 98% recall
+        // M = 16;
+        // ef_construction = 120;
+        // ef_search = 2600;
+        
+        // Option 3: Original baseline (~26min), 98.4% recall
+        // M = 20;
+        // ef_construction = 165;
+        // ef_search = 2800;
     }
     else if (dimension == 128 && num_vectors > 900000)
     {

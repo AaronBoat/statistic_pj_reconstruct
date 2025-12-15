@@ -207,18 +207,30 @@ int main(int argc, char *argv[])
     string dataset_dir = "../data_o/data_o/sift";
     bool use_cache = false;
     bool save_cache = false;
+    int custom_ef_search = -1;
 
     if (argc > 1)
     {
         dataset_dir = argv[1];
     }
-    if (argc > 2 && string(argv[2]) == "--use-cache")
+    
+    // Parse command line arguments
+    for (int i = 2; i < argc; ++i)
     {
-        use_cache = true;
-    }
-    if (argc > 2 && string(argv[2]) == "--save-cache")
-    {
-        save_cache = true;
+        string arg = argv[i];
+        if (arg == "--use-cache")
+        {
+            use_cache = true;
+        }
+        else if (arg == "--save-cache")
+        {
+            save_cache = true;
+        }
+        else if (arg == "--ef-search" && i + 1 < argc)
+        {
+            custom_ef_search = atoi(argv[i + 1]);
+            ++i;
+        }
     }
 
     string base_file = dataset_dir + "/base.txt";
@@ -282,7 +294,7 @@ int main(int argc, char *argv[])
         auto build_time = chrono::duration_cast<chrono::milliseconds>(build_end - build_start).count();
 
         cout << "\nBuild time: " << build_time << " ms" << endl;
-
+        
         // Save cache if requested
         if (save_cache)
         {
@@ -296,6 +308,13 @@ int main(int argc, char *argv[])
                 cout << "✗ Failed to save graph cache" << endl;
             }
         }
+    }
+    
+    // Apply custom ef_search if specified
+    if (custom_ef_search > 0)
+    {
+        cout << "Setting ef_search to " << custom_ef_search << endl;
+        solution.set_ef_search(custom_ef_search);
     }
 
     // Load and search queries
