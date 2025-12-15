@@ -274,8 +274,11 @@ inline float Solution::distance_quantized(int vec_id_a, const float *b) const
 vector<int> Solution::search_layer(const float *query, const vector<int> &entry_points,
                                    int ef, int level) const
 {
-    unordered_set<int> visited;
-    visited.reserve(ef * 2); // Pre-allocate to reduce rehashing
+    // Use vector<bool> for faster visited checking (better cache locality)
+    static thread_local vector<bool> visited;
+    if (visited.size() < num_vectors)
+        visited.resize(num_vectors);
+    fill(visited.begin(), visited.end(), false);
 
     // Priority queue: (distance, vertex_id)
     // Min heap for candidates (to get closest one first)
@@ -298,8 +301,10 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         float dist = distance(query, &vectors[ep * dimension], dimension);
         candidates.push({dist, ep});
         W.push({dist, ep});
-        visited.insert(ep);
+        visited[ep] = true;
     }
+    
+    float lower_bound = numeric_limits<float>::max();
 
     while (!candidates.empty())
     {
@@ -308,43 +313,49 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         float current_dist = current.first;
         int current_id = current.second;
 
-        // More aggressive early termination
-        if (W.size() >= ef)
-        {
-            float w_top = W.top().first;
-            if (current_dist > w_top)
-                break;
-        }
+        // More aggressive early termination with lower_bound
+        if (current_dist > lower_bound)
+            break;
 
         // Check neighbors
         if (level < graph.size() && current_id < graph[level].size())
         {
-            // Get current threshold for pruning
-            float threshold = (W.size() >= ef) ? W.top().first : numeric_limits<float>::max();
-
-            for (int neighbor : graph[level][current_id])
+            const auto &neighbors = graph[level][current_id];
+            const float *current_vec = &vectors[current_id * dimension];
+            
+            // Prefetch neighbors for better cache performance
+            for (size_t i = 0; i < min(size_t(4), neighbors.size()); ++i)
             {
-                if (visited.find(neighbor) == visited.end())
-                {
-                    visited.insert(neighbor);
+                __builtin_prefetch(&vectors[neighbors[i] * dimension], 0, 1);
+            }
 
-                    // Early pruning: compute distance only if potentially useful
+            for (size_t i = 0; i < neighbors.size(); ++i)
+            {
+                int neighbor = neighbors[i];
+                
+                // Prefetch next neighbor
+                if (i + 4 < neighbors.size())
+                    __builtin_prefetch(&vectors[neighbors[i + 4] * dimension], 0, 1);
+                
+                if (!visited[neighbor])
+                {
+                    visited[neighbor] = true;
                     float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
-                    // Add if W is not full or if this is closer than the farthest in W
-                    if (dist < threshold)
+                    if (dist < lower_bound || W.size() < ef)
                     {
                         candidates.push({dist, neighbor});
                         W.push({dist, neighbor});
 
                         if (W.size() > ef)
                         {
-                            W.pop();                   // Remove the farthest
-                            threshold = W.top().first; // Update threshold
+                            W.pop();
                         }
-                        else if (W.size() == ef)
+                        
+                        // Update lower bound efficiently
+                        if (W.size() >= ef)
                         {
-                            threshold = W.top().first; // Set threshold when W becomes full
+                            lower_bound = W.top().first;
                         }
                     }
                 }
@@ -517,14 +528,14 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Optimized for 98% recall with reasonable build time
+        // GLOVE: Test config M=16, ef_c=140, ef_s=2200
         M = 16;
-        ef_construction = 130;
-        ef_search = 2200;  // Reduced for faster search while maintaining recall
+        ef_construction = 140;
+        ef_search = 2200;
         
-        // Alternative configs (comment/uncomment to switch):
-        // Fast build (~15-18min): M=12, ef_c=100, ef_s=3200 (may have lower recall)
-        // High quality (~26min): M=20, ef_c=165, ef_s=2800 (98.4% recall)
+        // Alternative configs for different requirements:
+        // Fastest: M=14, ef_c=120, ef_s=2000 (~97-98% recall)
+        // Highest quality: M=20, ef_c=165, ef_s=2800 (98.4% recall)
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
