@@ -1,0 +1,294 @@
+{
+  "timestamp": "2025-12-16T12:22:32.119746",
+  "dataset": "..\\data_o\\data_o\\glove",
+  "results": [
+    {
+      "M": 16,
+      "ef_c": 140,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 540377,
+        "build_min": 9.006283333333334,
+        "search_ms": 348,
+        "avg_search_ms": 3.48,
+        "dist_comps": 32038.91,
+        "recall1": 1.0,
+        "recall10": 0.961
+      },
+      "score": 199.3542833333335,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 140,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 541854,
+        "build_min": 9.0309,
+        "search_ms": 435,
+        "avg_search_ms": 4.35,
+        "dist_comps": 34559.27,
+        "recall1": 1.0,
+        "recall10": 0.965
+      },
+      "score": 159.46590000000015,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 140,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 547862,
+        "build_min": 9.131033333333333,
+        "search_ms": 431,
+        "avg_search_ms": 4.31,
+        "dist_comps": 37092.24,
+        "recall1": 1.0,
+        "recall10": 0.965
+      },
+      "score": 159.5620333333335,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 150,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 571201,
+        "build_min": 9.520016666666667,
+        "search_ms": 408,
+        "avg_search_ms": 4.08,
+        "dist_comps": 32207.98,
+        "recall1": 0.99,
+        "recall10": 0.964
+      },
+      "score": 169.92801666666682,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 150,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 564305,
+        "build_min": 9.405083333333334,
+        "search_ms": 384,
+        "avg_search_ms": 3.84,
+        "dist_comps": 34740.17,
+        "recall1": 0.99,
+        "recall10": 0.969
+      },
+      "score": 119.78908333333344,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 150,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 555268,
+        "build_min": 9.254466666666668,
+        "search_ms": 411,
+        "avg_search_ms": 4.11,
+        "dist_comps": 37241.73,
+        "recall1": 0.99,
+        "recall10": 0.971
+      },
+      "score": 99.66546666666676,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 160,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 623949,
+        "build_min": 10.39915,
+        "search_ms": 352,
+        "avg_search_ms": 3.52,
+        "dist_comps": 32323.17,
+        "recall1": 1.0,
+        "recall10": 0.964
+      },
+      "score": 170.75115000000014,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 160,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 612867,
+        "build_min": 10.21445,
+        "search_ms": 395,
+        "avg_search_ms": 3.95,
+        "dist_comps": 34878.87,
+        "recall1": 1.0,
+        "recall10": 0.968
+      },
+      "score": 130.60945000000012,
+      "pass": false
+    },
+    {
+      "M": 16,
+      "ef_c": 160,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 605555,
+        "build_min": 10.092583333333334,
+        "search_ms": 426,
+        "avg_search_ms": 4.26,
+        "dist_comps": 37387.0,
+        "recall1": 1.0,
+        "recall10": 0.97
+      },
+      "score": 110.51858333333342,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 140,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 586542,
+        "build_min": 9.7757,
+        "search_ms": 383,
+        "avg_search_ms": 3.83,
+        "dist_comps": 35382.51,
+        "recall1": 1.0,
+        "recall10": 0.973
+      },
+      "score": 80.15870000000005,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 140,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 586934,
+        "build_min": 9.782233333333334,
+        "search_ms": 409,
+        "avg_search_ms": 4.09,
+        "dist_comps": 38184.56,
+        "recall1": 1.0,
+        "recall10": 0.974
+      },
+      "score": 70.19123333333339,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 140,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 594492,
+        "build_min": 9.9082,
+        "search_ms": 462,
+        "avg_search_ms": 4.62,
+        "dist_comps": 40958.9,
+        "recall1": 1.0,
+        "recall10": 0.976
+      },
+      "score": 50.37020000000004,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 150,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 684456,
+        "build_min": 11.4076,
+        "search_ms": 427,
+        "avg_search_ms": 4.27,
+        "dist_comps": 35643.06,
+        "recall1": 1.0,
+        "recall10": 0.967
+      },
+      "score": 141.8346000000001,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 150,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 677181,
+        "build_min": 11.28635,
+        "search_ms": 460,
+        "avg_search_ms": 4.6,
+        "dist_comps": 38452.68,
+        "recall1": 1.0,
+        "recall10": 0.971
+      },
+      "score": 101.74635000000009,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 150,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 675372,
+        "build_min": 11.2562,
+        "search_ms": 499,
+        "avg_search_ms": 4.99,
+        "dist_comps": 41221.75,
+        "recall1": 1.0,
+        "recall10": 0.974
+      },
+      "score": 71.75520000000006,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 160,
+      "ef_s": 2200,
+      "metrics": {
+        "build_ms": 720500,
+        "build_min": 12.008333333333333,
+        "search_ms": 429,
+        "avg_search_ms": 4.29,
+        "dist_comps": 35820.62,
+        "recall1": 1.0,
+        "recall10": 0.968
+      },
+      "score": 132.43733333333344,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 160,
+      "ef_s": 2400,
+      "metrics": {
+        "build_ms": 718308,
+        "build_min": 11.9718,
+        "search_ms": 477,
+        "avg_search_ms": 4.77,
+        "dist_comps": 38642.43,
+        "recall1": 1.0,
+        "recall10": 0.971
+      },
+      "score": 102.44880000000009,
+      "pass": false
+    },
+    {
+      "M": 18,
+      "ef_c": 160,
+      "ef_s": 2600,
+      "metrics": {
+        "build_ms": 716597,
+        "build_min": 11.943283333333333,
+        "search_ms": 503,
+        "avg_search_ms": 5.03,
+        "dist_comps": 41451.35,
+        "recall1": 1.0,
+        "recall10": 0.975
+      },
+      "score": 62.446283333333376,
+      "pass": false
+    }
+  ]
+}

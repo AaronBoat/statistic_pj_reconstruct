@@ -303,7 +303,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         W.push({dist, ep});
         visited[ep] = true;
     }
-    
+
     float lower_bound = numeric_limits<float>::max();
 
     while (!candidates.empty())
@@ -322,7 +322,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         {
             const auto &neighbors = graph[level][current_id];
             const float *current_vec = &vectors[current_id * dimension];
-            
+
             // Prefetch neighbors for better cache performance
             for (size_t i = 0; i < min(size_t(4), neighbors.size()); ++i)
             {
@@ -332,11 +332,11 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
             for (size_t i = 0; i < neighbors.size(); ++i)
             {
                 int neighbor = neighbors[i];
-                
+
                 // Prefetch next neighbor
                 if (i + 4 < neighbors.size())
                     __builtin_prefetch(&vectors[neighbors[i + 4] * dimension], 0, 1);
-                
+
                 if (!visited[neighbor])
                 {
                     visited[neighbor] = true;
@@ -351,7 +351,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
                         {
                             W.pop();
                         }
-                        
+
                         // Update lower bound efficiently
                         if (W.size() >= ef)
                         {
@@ -528,14 +528,13 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Test config M=16, ef_c=140, ef_s=2200
-        M = 16;
-        ef_construction = 140;
-        ef_search = 2200;
-        
-        // Alternative configs for different requirements:
-        // Fastest: M=14, ef_c=120, ef_s=2000 (~97-98% recall)
-        // Highest quality: M=20, ef_c=165, ef_s=2800 (98.4% recall)
+        // GLOVE: Based on tuning - M=18 max 97.6%, need M=20 for 98%+
+        M = 20;
+        ef_construction = 165;
+        ef_search = 2800;
+
+        // Tuning results: M=18 ef_s=2600 reached 97.6% (insufficient)
+        // Need M>=20 for 98%+ recall requirement
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
