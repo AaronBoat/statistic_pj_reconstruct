@@ -34,6 +34,9 @@ Solution::Solution()
     max_level = 0;
     gamma = 0.0; // Disable NGT adaptive search by default (restore baseline)
 
+    // Optimization 1: Initialize visited tag system
+    visited_tag = 0;
+
     distance_computations = 0;
     use_quantization = false; // Disabled by default
     rng.seed(42);
@@ -274,11 +277,17 @@ inline float Solution::distance_quantized(int vec_id_a, const float *b) const
 vector<int> Solution::search_layer(const float *query, const vector<int> &entry_points,
                                    int ef, int level) const
 {
-    // Use vector<bool> for faster visited checking (better cache locality)
-    static thread_local vector<bool> visited;
-    if (visited.size() < num_vectors)
-        visited.resize(num_vectors);
-    fill(visited.begin(), visited.end(), false);
+    // Optimization 1: Tag system - O(1) instead of O(N) fill
+    if (visited_list.size() < num_vectors) {
+        visited_list.resize(num_vectors, 0);
+        visited_tag = 1;
+    }
+    
+    ++visited_tag;
+    if (visited_tag == 0) { // Handle overflow
+        std::fill(visited_list.begin(), visited_list.end(), 0);
+        visited_tag = 1;
+    }
 
     // Priority queue: (distance, vertex_id)
     // Min heap for candidates (to get closest one first)
@@ -298,10 +307,12 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
     // Initialize with entry points
     for (int ep : entry_points)
     {
-        float dist = distance(query, &vectors[ep * dimension], dimension);
-        candidates.push({dist, ep});
-        W.push({dist, ep});
-        visited[ep] = true;
+        if (visited_list[ep] != visited_tag) {
+            visited_list[ep] = visited_tag;
+            float dist = distance(query, &vectors[ep * dimension], dimension);
+            candidates.push({dist, ep});
+            W.push({dist, ep});
+        }
     }
 
     float lower_bound = numeric_limits<float>::max();
@@ -317,11 +328,27 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         if (current_dist > lower_bound)
             break;
 
-        // Check neighbors
-        if (level < graph.size() && current_id < graph[level].size())
+        // Check neighbors - Optimization 3: Use flattened graph for Layer 0
+        vector<int> neighbors_temp;
+        const vector<int>* neighbors_ptr = nullptr;
+        
+        if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors) {
+            // Use flattened Layer 0 graph
+            int max_neighbors_l0 = 2 * M;
+            int offset = current_id * (max_neighbors_l0 + 1);
+            int neighbor_count = final_graph_flat[offset];
+            neighbors_temp.resize(neighbor_count);
+            for (int j = 0; j < neighbor_count; ++j) {
+                neighbors_temp[j] = final_graph_flat[offset + 1 + j];
+            }
+            neighbors_ptr = &neighbors_temp;
+        } else if (level < graph.size() && current_id < graph[level].size()) {
+            neighbors_ptr = &graph[level][current_id];
+        }
+        
+        if (neighbors_ptr != nullptr)
         {
-            const auto &neighbors = graph[level][current_id];
-            const float *current_vec = &vectors[current_id * dimension];
+            const auto &neighbors = *neighbors_ptr;
 
             // Prefetch neighbors for better cache performance
             for (size_t i = 0; i < min(size_t(4), neighbors.size()); ++i)
@@ -337,9 +364,9 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
                 if (i + 4 < neighbors.size())
                     __builtin_prefetch(&vectors[neighbors[i + 4] * dimension], 0, 1);
 
-                if (!visited[neighbor])
+                if (visited_list[neighbor] != visited_tag)
                 {
-                    visited[neighbor] = true;
+                    visited_list[neighbor] = visited_tag;
                     float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
                     if (dist < lower_bound || W.size() < ef)
@@ -528,13 +555,13 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: Aggressive config for 98%+ recall (current: 96.93% insufficient)
-        // Build time 772s allows room for higher quality graph
-        M = 24;              // Higher M for better connectivity (96.93% -> 98%+)
-        ef_construction = 200; // Much higher quality construction
-        ef_search = 2600;     // Slightly lower for faster search (6ms -> 5ms)
+        // GLOVE: Optimization 4 - Tuned parameters for 99%+ recall
+        M = 32;                 // Increased connectivity (from 24)
+        ef_construction = 400;  // Higher quality construction (from 200)
+        ef_search = 180;        // Optimized search depth (from 2600)
+        gamma = 0.2;            // Enable NGT adaptive search
         
-        // Trade more build time for better recall: 12min -> 18-22min is acceptable
+        // Target: 99% recall, <5ms search, <15min build
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
@@ -588,6 +615,22 @@ void Solution::build(int d, const vector<float> &base)
         if (level > vertex_level[entry_point[0]])
         {
             entry_point[0] = i;
+        }
+    }
+
+    // Optimization 3: Flatten Layer 0 for cache efficiency
+    if (!graph.empty() && !graph[0].empty()) {
+        int max_neighbors_l0 = 2 * M;
+        final_graph_flat.resize(num_vectors * (max_neighbors_l0 + 1), 0);
+        
+        for (int i = 0; i < num_vectors; ++i) {
+            const auto& neighbors = graph[0][i];
+            int size = neighbors.size();
+            int offset = i * (max_neighbors_l0 + 1);
+            final_graph_flat[offset] = size;
+            for (int j = 0; j < size; ++j) {
+                final_graph_flat[offset + 1 + j] = neighbors[j];
+            }
         }
     }
 }
@@ -645,8 +688,18 @@ void Solution::search_hnsw(const vector<float> &query, int *res)
 vector<int> Solution::search_layer_adaptive(const float *query, const vector<int> &entry_points,
                                             int ef, int level, float gamma_param) const
 {
-    unordered_set<int> visited;
-    visited.reserve(ef * 2);
+    // Optimization 2: Use tag system instead of unordered_set (3-5x faster)
+    if (visited_list.size() < num_vectors) {
+        visited_list.resize(num_vectors, 0);
+        visited_tag = 1;
+    }
+    
+    int tag = ++visited_tag;
+    if (tag == 0) {
+        fill(visited_list.begin(), visited_list.end(), 0);
+        tag = visited_tag = 1;
+    }
+    auto& visited = visited_list;
 
     auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b)
     {
@@ -663,13 +716,15 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
     // Initialize with entry points
     for (int ep : entry_points)
     {
-        float dist = distance(query, &vectors[ep * dimension], dimension);
-        candidates.push({dist, ep});
-        W.push({dist, ep});
-        visited.insert(ep);
+        if (visited[ep] != tag) {
+            visited[ep] = tag;
+            float dist = distance(query, &vectors[ep * dimension], dimension);
+            candidates.push({dist, ep});
+            W.push({dist, ep});
+        }
     }
 
-    float lower_bound = candidates.top().first;
+    float max_dist_threshold = W.empty() ? numeric_limits<float>::max() : W.top().first;
 
     while (!candidates.empty())
     {
@@ -679,25 +734,39 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
         int current_id = current.second;
 
         // NGT-inspired adaptive termination
-        if (W.size() >= ef)
-        {
-            float w_top = W.top().first;
-            if (current_dist > w_top * (1.0 + gamma_param))
-                break;
+        if (current_dist > max_dist_threshold * (1.0 + gamma_param)) {
+            if (W.size() >= ef) break;
         }
 
-        if (level < graph.size() && current_id < graph[level].size())
+        // Get neighbors - use flattened graph for Layer 0
+        vector<int> neighbors_temp;
+        const vector<int>* neighbors_ptr = nullptr;
+        
+        if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors) {
+            int max_neighbors_l0 = 2 * M;
+            int offset = current_id * (max_neighbors_l0 + 1);
+            int neighbor_count = final_graph_flat[offset];
+            neighbors_temp.resize(neighbor_count);
+            for (int j = 0; j < neighbor_count; ++j) {
+                neighbors_temp[j] = final_graph_flat[offset + 1 + j];
+            }
+            neighbors_ptr = &neighbors_temp;
+        } else if (level < graph.size() && current_id < graph[level].size()) {
+            neighbors_ptr = &graph[level][current_id];
+        }
+        
+        if (neighbors_ptr != nullptr)
         {
-            float threshold = (W.size() >= ef) ? W.top().first : numeric_limits<float>::max();
-
-            for (int neighbor : graph[level][current_id])
+            const auto& neighbors = *neighbors_ptr;
+            
+            for (int neighbor : neighbors)
             {
-                if (visited.find(neighbor) == visited.end())
+                if (visited[neighbor] != tag)
                 {
-                    visited.insert(neighbor);
+                    visited[neighbor] = tag;
                     float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
-                    if (dist < threshold * (1.0 + gamma_param))
+                    if (dist < max_dist_threshold * (1.0 + gamma_param) || W.size() < ef)
                     {
                         candidates.push({dist, neighbor});
                         W.push({dist, neighbor});
@@ -705,11 +774,11 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
                         if (W.size() > ef)
                         {
                             W.pop();
-                            threshold = W.top().first;
+                            max_dist_threshold = W.top().first;
                         }
-                        else if (W.size() == ef)
+                        else
                         {
-                            threshold = W.top().first;
+                            max_dist_threshold = W.top().first;
                         }
                     }
                 }

@@ -43,8 +43,15 @@ private:
     vector<vector<vector<int>>> graph;
     vector<int> vertex_level;
 
+    // Flattened Layer 0 for cache efficiency (Optimization 3)
+    vector<int> final_graph_flat;
+
     // Helper structures
     mt19937 rng;
+
+    // Visited tag system for fast search (Optimization 1)
+    mutable std::vector<int> visited_list;
+    mutable int visited_tag;
 
     // Statistics
     mutable long long distance_computations;
