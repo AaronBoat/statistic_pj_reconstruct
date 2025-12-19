@@ -466,7 +466,9 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
     }
 
     // Select remaining with diversity constraint
-    const float alpha = 1.2f; // Optimal balance for quality
+    // Fix 1: Lower alpha for GLOVE dense vectors (1.2 -> 1.0)
+    // For dense clustered data, we need more "roads to Rome" not "different directions"
+    const float alpha = 1.0f;
 
     for (size_t i = 1; i < scored_neighbors.size() && (int)selected.size() < M_level; ++i)
     {
@@ -481,8 +483,8 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
                                               &vectors[sel * dimension],
                                               dimension);
 
-            // Diversity criterion: dist(candidate, selected) > dist(base, candidate) / alpha
-            if (dist_to_selected < candidate_dist / alpha)
+            // Diversity criterion: simplify division to multiplication
+            if (dist_to_selected < candidate_dist * alpha)
             {
                 is_diverse = false;
                 break;
@@ -589,13 +591,14 @@ void Solution::build(int d, const vector<float> &base)
     // Auto-detect dataset and optimize parameters
     if (dimension == 100 && num_vectors > 1000000)
     {
-        // GLOVE: XIAOYANG-optimized (内存访问优化+激进剪枝)
-        M = 24;                // Proven 98.8% recall
-        ef_construction = 250; // Conservative for stability
-        ef_search = 150;       // Balance: speed + recall
-        gamma = 0.1;           // Moderate NGT pruning
+        // GLOVE: Fix 2 - Parameters for 99% recall
+        M = 32;                // Increase connectivity (from 24) -> reduce dead ends
+        ef_construction = 400; // Higher quality construction (from 250)
+        ef_search = 300;       // Higher search breadth (from 150)
+        gamma = 0.25;          // Relaxed adaptive threshold (from 0.1) -> avoid early exit
 
-        // XIAOYANG strategy: 内存访问优化 + 激进剪枝 = 快速搜索
+        // Trade-off: M=32 significantly improves connectivity and recall
+        // gamma=0.25 allows searching slightly farther nodes to avoid missing neighbors
     }
     else if (dimension == 128 && num_vectors > 900000)
     {
@@ -780,33 +783,76 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
                 break;
         }
 
-        // Get neighbors - use flattened graph for Layer 0
-        vector<int> neighbors_temp;
-        const vector<int> *neighbors_ptr = nullptr;
+        // Fix 3: Zero-copy pointer access + Prefetch (remove resize bug)
+        const int *neighbors_ptr = nullptr;
+        int neighbor_count = 0;
 
         if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors)
         {
+            // Layer 0: Flat array access (Zero Copy)
             int max_neighbors_l0 = 2 * M;
-            int offset = current_id * (max_neighbors_l0 + 1);
-            int neighbor_count = final_graph_flat[offset];
-            neighbors_temp.resize(neighbor_count);
-            for (int j = 0; j < neighbor_count; ++j)
+            long long offset = (long long)current_id * (max_neighbors_l0 + 1); // Prevent overflow
+            neighbor_count = final_graph_flat[offset];
+            neighbors_ptr = &final_graph_flat[offset + 1];
+
+            // Prefetch logic
+            for (int i = 0; i < min(4, neighbor_count); ++i)
             {
-                neighbors_temp[j] = final_graph_flat[offset + 1 + j];
+                __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
             }
-            neighbors_ptr = &neighbors_temp;
+
+            for (int i = 0; i < neighbor_count; ++i)
+            {
+                int neighbor = neighbors_ptr[i];
+
+                // Pipeline prefetch
+                if (i + 4 < neighbor_count)
+                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
+
+                if (visited[neighbor] != tag)
+                {
+                    visited[neighbor] = tag;
+                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
+
+                    if (dist < max_dist_threshold * (1.0 + gamma_param) || W.size() < ef)
+                    {
+                        candidates.push({dist, neighbor});
+                        W.push({dist, neighbor});
+
+                        if (W.size() > ef)
+                        {
+                            W.pop();
+                            max_dist_threshold = W.top().first;
+                        }
+                        else
+                        {
+                            max_dist_threshold = W.top().first;
+                        }
+                    }
+                }
+            }
         }
         else if (level < graph.size() && current_id < graph[level].size())
         {
-            neighbors_ptr = &graph[level][current_id];
-        }
+            // Higher layers: Vector access
+            const auto &vec_ref = graph[level][current_id];
+            neighbor_count = vec_ref.size();
+            neighbors_ptr = vec_ref.data();
 
-        if (neighbors_ptr != nullptr)
-        {
-            const auto &neighbors = *neighbors_ptr;
-
-            for (int neighbor : neighbors)
+            // Prefetch logic
+            for (int i = 0; i < min(4, neighbor_count); ++i)
             {
+                __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
+            }
+
+            for (int i = 0; i < neighbor_count; ++i)
+            {
+                int neighbor = neighbors_ptr[i];
+
+                // Pipeline prefetch
+                if (i + 4 < neighbor_count)
+                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
+
                 if (visited[neighbor] != tag)
                 {
                     visited[neighbor] = tag;
