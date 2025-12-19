@@ -592,7 +592,7 @@ void Solution::build(int d, const vector<float> &base)
         // GLOVE: XIAOYANG-optimized (内存访问优化+激进剪枝)
         M = 24;                // Proven 98.8% recall
         ef_construction = 250; // Conservative for stability
-        ef_search = 150;       // Balance: speed + recall  
+        ef_search = 150;       // Balance: speed + recall
         gamma = 0.1;           // Moderate NGT pruning
 
         // XIAOYANG strategy: 内存访问优化 + 激进剪枝 = 快速搜索

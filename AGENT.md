@@ -347,9 +347,207 @@ if (dimension == 100 && num_vectors > 1000000)
 
 ```
 
-### 🏁 下一步建议
 
-**Would you like me to:**
+# 第二批调整思路
+  这是一个非常典型的**HNSW 权衡（Trade-off）现象**。准确率从 98% 跌到 91%，说明我们在追求速度时**“剪枝”剪得太狠了**。
 
-1. **Generate the complete `MySolution.h` and `.cpp` files** with the `visited_tag` system and Layer 0 flattening fully integrated? (This is the safest way to ensure no compilation errors).
-2. **Focus on the OpenMP parallelization** code to ensure the build time drops below 15 minutes?
+导致召回率暴跌的核心原因通常有两点：
+
+1. **构图太稀疏（Over-Pruning）：** `alpha=1.2` 的启发式选边策略强行剔除了很多“距离近但方向相似”的邻居。对于 GLOVE 这种稠密向量，这会导致搜索陷入局部最优。
+2. **搜索提前退出：** `gamma=0.1` 的自适应阈值太紧，或者 `ef_search` 在高维空间不够大。
+
+为了在**保持速度优势（<5ms）**的同时把召回率拉回 **99%**，我们需要执行以下 **3 步核心修复**。
+
+### 🛠️ 核心修复方案
+
+#### 1. 调整构图策略（MySolution.cpp -> select_neighbors_heuristic）
+
+**问题：** `alpha=1.2` 强制邻居之间保持多样性。但在 GLOVE 100维数据中，我们更需要“多条路通向罗马”，而不是“每条路方向都不同”。
+**修改：** 将 `alpha` 降为 **1.0**（甚至 0.98），并保留更多纯距离最近的邻居。
+
+```cpp
+void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
+{
+    if ((int)neighbors.size() <= M_level)
+        return;
+
+    const int base_vertex = neighbors[0];
+    vector<pair<float, int>> scored_neighbors;
+    scored_neighbors.reserve(neighbors.size());
+
+    // ... (保持原有的距离计算代码不变) ...
+    for (int neighbor : neighbors) {
+        float dist = distance(&vectors[base_vertex * dimension], &vectors[neighbor * dimension], dimension);
+        scored_neighbors.push_back({dist, neighbor});
+    }
+    sort(scored_neighbors.begin(), scored_neighbors.end());
+
+    vector<int> selected;
+    selected.reserve(M_level);
+
+    if (!scored_neighbors.empty()) {
+        selected.push_back(scored_neighbors[0].second);
+    }
+
+    // 🔴 关键修改 1: 降低 alpha 值 (1.2 -> 1.0)
+    // 对于 GLOVE 这种聚类明显的数据，alpha 过大会切断簇内连接
+    const float alpha = 1.0f; 
+
+    for (size_t i = 1; i < scored_neighbors.size() && (int)selected.size() < M_level; ++i)
+    {
+        int candidate = scored_neighbors[i].second;
+        float candidate_dist = scored_neighbors[i].first;
+        bool is_diverse = true;
+
+        for (int sel : selected)
+        {
+            float dist_to_selected = distance(&vectors[candidate * dimension],
+                                              &vectors[sel * dimension],
+                                              dimension);
+            if (dist_to_selected < candidate_dist * alpha) // 简化除法为乘法
+            {
+                is_diverse = false;
+                break;
+            }
+        }
+
+        if (is_diverse)
+        {
+            selected.push_back(candidate);
+        }
+    }
+    
+    // ... (保持剩余填充逻辑不变) ...
+}
+
+```
+
+#### 2. 参数微调（MySolution.cpp -> build）
+
+**问题：** `M=24` 可能不足以支撑 99% 的高召回率。增加 M 会稍微增加构建时间，但对搜索准确率提升巨大。
+**修改：** 提升 `M` 和 `ef_construction`。
+
+```cpp
+    // 在 build 函数中修改 GLOVE 参数
+    if (dimension == 100 && num_vectors > 1000000)
+    {
+        // GLOVE: 追求 99% 召回率的配置
+        M = 32;                 // 🔴 增加连接数 (原 24) -> 提升连通性
+        ef_construction = 400;  // 🔴 提升构建深度 (原 250) -> 提升图质量
+        ef_search = 300;        // 🔴 提升基础搜索广度 (原 150)
+        gamma = 0.25;           // 🔴 放宽自适应阈值 (原 0.1) -> 避免过早退出
+        
+        // 解释：M=32 能显著减少“死胡同”；gamma=0.25 允许搜索稍微远一点的节点，防止漏掉近邻。
+    }
+
+```
+
+#### 3. 修复 Adaptive Search 的性能隐患（MySolution.cpp -> search_layer_adaptive）
+
+**严重问题：** 原代码在 `search_layer_adaptive` 的循环中写了 `neighbors_temp.resize()`。这会导致极其频繁的内存分配，严重拖慢速度，导致你不敢开大 `ef_search`。
+**修改：** 采用与 `search_layer` 相同的**零拷贝（Zero-copy）**指针访问，并加上 Prefetch。
+
+```cpp
+vector<int> Solution::search_layer_adaptive(const float *query, const vector<int> &entry_points,
+                                            int ef, int level, float gamma_param) const
+{
+    // ... (前面的 Tag 初始化代码保持不变) ...
+    // ... (Priority Queue 定义保持不变) ...
+
+    // ... (Entry Points 处理保持不变) ...
+    
+    float max_dist_threshold = W.empty() ? numeric_limits<float>::max() : W.top().first;
+
+    while (!candidates.empty())
+    {
+        auto current = candidates.top();
+        candidates.pop();
+        float current_dist = current.first;
+        int current_id = current.second;
+
+        // Adaptive termination
+        if (current_dist > max_dist_threshold * (1.0 + gamma_param))
+        {
+            if (W.size() >= ef)
+                break;
+        }
+
+        // 🔴 关键修复：直接指针访问 + Prefetch (照搬 search_layer 的高效逻辑)
+        const int *neighbors_ptr = nullptr;
+        int neighbor_count = 0;
+
+        if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors)
+        {
+            // Layer 0: Flat array access (Zero Copy)
+            int max_neighbors_l0 = 2 * M; // 注意：build时需确保这里一致，建议存入成员变量
+            long long offset = (long long)current_id * (max_neighbors_l0 + 1); // 防止溢出
+            neighbor_count = final_graph_flat[offset];
+            neighbors_ptr = &final_graph_flat[offset + 1];
+        }
+        else if (level < graph.size() && current_id < graph[level].size())
+        {
+            // Higher layers: Vector access
+            const auto &vec_ref = graph[level][current_id];
+            neighbor_count = vec_ref.size();
+            neighbors_ptr = vec_ref.data();
+        }
+
+        if (neighbors_ptr)
+        {
+            // 🚀 Prefetch logic (Copied from fast search_layer)
+            for (int i = 0; i < min(4, neighbor_count); ++i) {
+                 __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
+            }
+
+            for (int i = 0; i < neighbor_count; ++i)
+            {
+                int neighbor = neighbors_ptr[i];
+                
+                // Pipeline prefetch
+                if (i + 4 < neighbor_count)
+                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
+
+                if (visited[neighbor] != tag)
+                {
+                    visited[neighbor] = tag;
+                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
+
+                    if (dist < max_dist_threshold * (1.0 + gamma_param) || W.size() < ef)
+                    {
+                        candidates.push({dist, neighbor});
+                        W.push({dist, neighbor});
+
+                        if (W.size() > ef)
+                        {
+                            W.pop();
+                            max_dist_threshold = W.top().first;
+                        }
+                        else
+                        {
+                            max_dist_threshold = W.top().first;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // ... (结果提取保持不变) ...
+}
+
+```
+
+### 📊 预期效果
+
+实施以上修改后，你的系统应该会表现为：
+
+1. **准确率（Recall）：** 回升至 **98.8% - 99.3%**（得益于 `alpha=1.0` 和 `M=32`）。
+2. **构建时间：** 可能会增加 2-3 分钟（因为 M 变大了），但通过 OpenMP 优化仍可保持在 15 分钟内。
+3. **搜索速度：**
+* 虽然 `M` 变大了（计算量增加），但由于修复了 `search_layer_adaptive` 中的 `resize` 内存分配 bug，整体速度应该**持平或更快**。
+* `gamma=0.25` 会比 `0.1` 稍微慢一点点，但是它是保证准确率的关键。
+
+
+
+**建议下一步：**
+先应用上述代码，运行 Build。如果构建时间超过 15 分钟，我们再开启 OpenMP 并行构建（那是一行代码的事）。现在的重点是先救回准确率。
