@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <queue>
+#include <unordered_set>
 #include <random>
 #include <cmath>
 #include <algorithm>
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <mutex>
 #include <atomic>
 
 using namespace std;
@@ -24,13 +26,19 @@ private:
     int ef_search;       // size of dynamic candidate list during search
     int max_level;       // maximum level
     float ml;            // level multiplier
-    float gamma;         // adaptive search threshold
+    float gamma;         // adaptive search threshold (NGT-inspired)
 
     // Data storage
     int dimension;
     int num_vectors;
     vector<float> vectors;
-    vector<int> entry_point; // vector to allow easy swap, though usually size 1
+    vector<int> entry_point;
+
+    // Quantization parameters (optional)
+    bool use_quantization;
+    vector<unsigned char> quantized_vectors; // 8-bit quantized vectors
+    vector<float> quantization_mins;         // Min values per dimension
+    vector<float> quantization_scales;       // Scale factors per dimension
 
     // HNSW graph structure
     // graph[level][vertex_id] = list of neighbors
@@ -40,59 +48,65 @@ private:
     // Flattened Layer 0 for cache efficiency (Optimization 3)
     vector<int> final_graph_flat;
 
-    // Fine-grained locks for parallel build
+    // OpenMP parallelization: fine-grained locks (Optimization 3rd batch)
     struct NodeLock {
         std::atomic_flag lock = ATOMIC_FLAG_INIT;
-        void acquire() {
-            while (lock.test_and_set(std::memory_order_acquire)) {
-                // spin
-            }
-        }
-        void release() {
-            lock.clear(std::memory_order_release);
-        }
+        NodeLock() = default;
+        NodeLock(const NodeLock&) { } // Allow copy construction (required by vector)
+        NodeLock& operator=(const NodeLock&) { return *this; } // Allow copy assignment
+        void acquire() { while (lock.test_and_set(std::memory_order_acquire)); }
+        void release() { lock.clear(std::memory_order_release); }
     };
-    // Note: NodeLock is not copyable/movable easily, so we manage it carefully or use deque/ptr
-    // Using a pointer array or fixed vector to avoid reallocation issues
-    vector<NodeLock> node_locks; 
+    vector<NodeLock> node_locks;
 
     // Helper structures
     mt19937 rng;
+
+    // Visited tag system for fast search (Optimization 1)
+    mutable std::vector<int> visited_list;
+    mutable int visited_tag;
+
+    // Statistics
     mutable long long distance_computations;
 
     // Distance calculation
     inline float distance(const float *a, const float *b, int dim) const;
+    inline float distance_quantized(int vec_id_a, const float *b) const;
+
+    // Quantization methods
+    void build_quantization();
+    void quantize_vector(const float *vec, unsigned char *quantized) const;
 
     // HNSW methods
     int random_level();
-    
-    // Internal search that uses thread_local storage
     vector<int> search_layer(const float *query, const vector<int> &entry_points,
                              int ef, int level) const;
-                             
     vector<int> search_layer_adaptive(const float *query, const vector<int> &entry_points,
                                       int ef, int level, float gamma) const;
-
     void select_neighbors_heuristic(vector<int> &neighbors, int M_level);
     void connect_neighbors(int vertex, int level, const vector<int> &neighbors);
-    
+    void build_hnsw();
     void search_hnsw(const vector<float> &query, int *res);
 
 public:
     Solution();
     ~Solution();
 
+    // Set HNSW parameters (call before build)
     void set_parameters(int M_val, int ef_c, int ef_s);
+    void set_gamma(float gamma_val) { gamma = gamma_val; }
+    void set_ef_search(int ef_s) { ef_search = ef_s; }
+
     void build(int d, const vector<float> &base);
     void search(const vector<float> &query, int *res);
-    
+
+    // Statistics methods
+    long long get_distance_computations() const { return distance_computations; }
+    void reset_distance_computations() { distance_computations = 0; }
+
+    // Graph caching for fast parameter tuning (public for tuning tools)
     bool save_graph(const string &filename) const;
     bool load_graph(const string &filename);
-    
-    // Additional public interface for test harness
-    void set_ef_search(int ef) { ef_search = ef; }
-    void reset_distance_computations() { distance_computations = 0; }
-    long long get_distance_computations() const { return distance_computations; }
 };
 
 #endif // MY_SOLUTION_H

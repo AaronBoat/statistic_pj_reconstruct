@@ -5,6 +5,7 @@
 #include <random>
 #include <chrono>
 #include <cstring>
+#include <climits>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -24,21 +25,45 @@
 
 using namespace std;
 
+// ==================== Thread Local Storage ====================
+// This is the CRITICAL FIX for the race condition and TLE.
+// Each thread gets its own visited buffer.
+struct VisitedBuffer {
+    vector<int> visited;
+    int tag;
+    
+    VisitedBuffer() : tag(0) {}
+    
+    void resize(int n) {
+        if (visited.size() < n) {
+            visited.resize(n, 0);
+            tag = 0;
+        }
+    }
+    
+    int get_new_tag() {
+        ++tag;
+        if (tag == 0) { // Overflow handling
+            fill(visited.begin(), visited.end(), 0);
+            tag = 1;
+        }
+        return tag;
+    }
+};
+
+static thread_local VisitedBuffer tls_visited;
+
+// ==================== Solution Implementation ====================
+
 Solution::Solution()
 {
-    // HNSW parameters - will be auto-configured in build() based on dataset
-    M = 16;                // Default for SIFT
-    ef_construction = 100; // Default for SIFT (fast build)
-    ef_search = 200;       // Default for SIFT
+    M = 16;
+    ef_construction = 200;
+    ef_search = 200;
     ml = 1.0 / log(2.0);
     max_level = 0;
-    gamma = 0.0; // Disable NGT adaptive search by default (restore baseline)
-
-    // Optimization 1: Initialize visited tag system
-    visited_tag = 0;
-
+    gamma = 0.0;
     distance_computations = 0;
-    use_quantization = false; // Disabled by default
     rng.seed(42);
 }
 
@@ -56,264 +81,77 @@ void Solution::set_parameters(int M_val, int ef_c, int ef_s)
 
 inline float Solution::distance(const float *a, const float *b, int dim) const
 {
-    ++distance_computations;
-
 #if defined(USE_AVX512)
-    // AVX-512: Process 16 floats at a time
     __m512 sum = _mm512_setzero_ps();
     int i = 0;
-
-    for (; i + 16 <= dim; i += 16)
-    {
+    for (; i + 16 <= dim; i += 16) {
         __m512 va = _mm512_loadu_ps(a + i);
         __m512 vb = _mm512_loadu_ps(b + i);
         __m512 diff = _mm512_sub_ps(va, vb);
         sum = _mm512_fmadd_ps(diff, diff, sum);
     }
-
     float total = _mm512_reduce_add_ps(sum);
-
-    // Handle remaining
-    for (; i < dim; ++i)
-    {
+    for (; i < dim; ++i) {
         float diff = a[i] - b[i];
         total += diff * diff;
     }
-
     return total;
-
 #elif defined(USE_AVX2)
-    // AVX2: Process 8 floats at a time (optimized)
-    __m256 sum1 = _mm256_setzero_ps();
-    __m256 sum2 = _mm256_setzero_ps();
+    __m256 sum = _mm256_setzero_ps();
     int i = 0;
-
-    // Unroll by 2 for better throughput
-    for (; i + 16 <= dim; i += 16)
-    {
-        __m256 va1 = _mm256_loadu_ps(a + i);
-        __m256 vb1 = _mm256_loadu_ps(b + i);
-        __m256 diff1 = _mm256_sub_ps(va1, vb1);
-        sum1 = _mm256_fmadd_ps(diff1, diff1, sum1);
-
-        __m256 va2 = _mm256_loadu_ps(a + i + 8);
-        __m256 vb2 = _mm256_loadu_ps(b + i + 8);
-        __m256 diff2 = _mm256_sub_ps(va2, vb2);
-        sum2 = _mm256_fmadd_ps(diff2, diff2, sum2);
-    }
-
-    // Process remaining 8
-    for (; i + 8 <= dim; i += 8)
-    {
+    for (; i + 8 <= dim; i += 8) {
         __m256 va = _mm256_loadu_ps(a + i);
         __m256 vb = _mm256_loadu_ps(b + i);
         __m256 diff = _mm256_sub_ps(va, vb);
-        sum1 = _mm256_fmadd_ps(diff, diff, sum1);
+        sum = _mm256_fmadd_ps(diff, diff, sum);
     }
-
-    // Combine sums
-    sum1 = _mm256_add_ps(sum1, sum2);
-
-    // Horizontal sum
-    __m128 low = _mm256_castps256_ps128(sum1);
-    __m128 high = _mm256_extractf128_ps(sum1, 1);
-    __m128 sum128 = _mm_add_ps(low, high);
-    sum128 = _mm_hadd_ps(sum128, sum128);
-    sum128 = _mm_hadd_ps(sum128, sum128);
-    float total = _mm_cvtss_f32(sum128);
-
-    // Handle remaining
-    for (; i < dim; ++i)
-    {
+    __m128 sum_low = _mm256_castps256_ps128(sum);
+    __m128 sum_high = _mm256_extractf128_ps(sum, 1);
+    __m128 res = _mm_add_ps(sum_low, sum_high);
+    res = _mm_hadd_ps(res, res);
+    res = _mm_hadd_ps(res, res);
+    float total = _mm_cvtss_f32(res);
+    for (; i < dim; ++i) {
         float diff = a[i] - b[i];
         total += diff * diff;
     }
-
     return total;
-
-#elif defined(USE_SSE2)
-    // SSE2: Process 4 floats at a time
-    __m128 sum = _mm_setzero_ps();
-    int i = 0;
-
-    for (; i + 4 <= dim; i += 4)
-    {
-        __m128 va = _mm_loadu_ps(a + i);
-        __m128 vb = _mm_loadu_ps(b + i);
-        __m128 diff = _mm_sub_ps(va, vb);
-        __m128 sq = _mm_mul_ps(diff, diff);
-        sum = _mm_add_ps(sum, sq);
-    }
-
-    // Horizontal sum using shuffle
-    __m128 shuf = _mm_shuffle_ps(sum, sum, _MM_SHUFFLE(2, 3, 0, 1));
-    __m128 sums = _mm_add_ps(sum, shuf);
-    shuf = _mm_movehl_ps(shuf, sums);
-    sums = _mm_add_ss(sums, shuf);
-    float total = _mm_cvtss_f32(sums);
-
-    for (; i < dim; ++i)
-    {
-        float diff = a[i] - b[i];
-        total += diff * diff;
-    }
-
-    return total;
-
 #else
-    // Fallback: Optimized scalar with loop unrolling
-    float sum1 = 0.0f, sum2 = 0.0f, sum3 = 0.0f, sum4 = 0.0f;
-    int i = 0;
-
-    // 16-way unrolling for better ILP
-    for (; i + 16 <= dim; i += 16)
-    {
-        float d0 = a[i] - b[i];
-        float d1 = a[i + 1] - b[i + 1];
-        float d2 = a[i + 2] - b[i + 2];
-        float d3 = a[i + 3] - b[i + 3];
-        float d4 = a[i + 4] - b[i + 4];
-        float d5 = a[i + 5] - b[i + 5];
-        float d6 = a[i + 6] - b[i + 6];
-        float d7 = a[i + 7] - b[i + 7];
-
-        sum1 += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
-        sum2 += d4 * d4 + d5 * d5 + d6 * d6 + d7 * d7;
-
-        float d8 = a[i + 8] - b[i + 8];
-        float d9 = a[i + 9] - b[i + 9];
-        float d10 = a[i + 10] - b[i + 10];
-        float d11 = a[i + 11] - b[i + 11];
-        float d12 = a[i + 12] - b[i + 12];
-        float d13 = a[i + 13] - b[i + 13];
-        float d14 = a[i + 14] - b[i + 14];
-        float d15 = a[i + 15] - b[i + 15];
-
-        sum3 += d8 * d8 + d9 * d9 + d10 * d10 + d11 * d11;
-        sum4 += d12 * d12 + d13 * d13 + d14 * d14 + d15 * d15;
+    float dist = 0;
+    for(int i=0; i<dim; ++i) {
+        float d = a[i] - b[i];
+        dist += d * d;
     }
-
-    // Remaining elements
-    for (; i < dim; ++i)
-    {
-        float diff = a[i] - b[i];
-        sum1 += diff * diff;
-    }
-
-    return sum1 + sum2 + sum3 + sum4;
+    return dist;
 #endif
 }
 
 int Solution::random_level()
 {
-    float r = (float)rng() / (float)rng.max();
+    double r = (double)rng() / (double)rng.max();
+    if (r < 1e-9) r = 1e-9;
     return (int)(-log(r) * ml);
 }
 
-// ==================== Quantization Methods ====================
-
-void Solution::build_quantization()
-{
-    // Scalar Quantization: quantize each dimension to 8-bit
-    quantization_mins.resize(dimension);
-    quantization_scales.resize(dimension);
-    quantized_vectors.resize(num_vectors * dimension);
-
-    // Compute min/max for each dimension
-    for (int d = 0; d < dimension; ++d)
-    {
-        float min_val = numeric_limits<float>::max();
-        float max_val = numeric_limits<float>::lowest();
-
-        for (int i = 0; i < num_vectors; ++i)
-        {
-            float val = vectors[i * dimension + d];
-            min_val = min(min_val, val);
-            max_val = max(max_val, val);
-        }
-
-        quantization_mins[d] = min_val;
-        float range = max_val - min_val;
-        quantization_scales[d] = (range > 1e-6f) ? (255.0f / range) : 1.0f;
-    }
-
-    // Quantize all vectors
-    for (int i = 0; i < num_vectors; ++i)
-    {
-        quantize_vector(&vectors[i * dimension],
-                        &quantized_vectors[i * dimension]);
-    }
-}
-
-void Solution::quantize_vector(const float *vec, unsigned char *quantized) const
-{
-    for (int d = 0; d < dimension; ++d)
-    {
-        float normalized = (vec[d] - quantization_mins[d]) * quantization_scales[d];
-        normalized = max(0.0f, min(255.0f, normalized));
-        quantized[d] = (unsigned char)(normalized + 0.5f);
-    }
-}
-
-inline float Solution::distance_quantized(int vec_id_a, const float *b) const
-{
-    // Asymmetric distance: quantized base vs. full-precision query
-    ++distance_computations;
-
-    const unsigned char *qa = &quantized_vectors[vec_id_a * dimension];
-    float sum = 0.0f;
-
-    for (int d = 0; d < dimension; ++d)
-    {
-        // Dequantize on the fly
-        float a_val = qa[d] / quantization_scales[d] + quantization_mins[d];
-        float diff = a_val - b[d];
-        sum += diff * diff;
-    }
-
-    return sum;
-}
-
-// ==================== HNSW Search Layer ====================
+// ==================== HNSW Core ====================
 
 vector<int> Solution::search_layer(const float *query, const vector<int> &entry_points,
                                    int ef, int level) const
 {
-    // Optimization 1: Tag system - O(1) instead of O(N) fill
-    if (visited_list.size() < num_vectors)
-    {
-        visited_list.resize(num_vectors, 0);
-        visited_tag = 1;
-    }
+    // Initialize Thread Local Storage
+    tls_visited.resize(num_vectors);
+    int tag = tls_visited.get_new_tag();
+    auto& visited = tls_visited.visited;
 
-    ++visited_tag;
-    if (visited_tag == 0)
-    { // Handle overflow
-        std::fill(visited_list.begin(), visited_list.end(), 0);
-        visited_tag = 1;
-    }
-
-    // Priority queue: (distance, vertex_id)
-    // Min heap for candidates (to get closest one first)
-    auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b)
-    {
-        return a.first > b.first;
-    };
+    auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b) { return a.first > b.first; };
     priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_min)> candidates(cmp_min);
 
-    // Max heap for results (W) - keep ef closest, top() is farthest among them
-    auto cmp_max = [](const pair<float, int> &a, const pair<float, int> &b)
-    {
-        return a.first < b.first;
-    };
+    auto cmp_max = [](const pair<float, int> &a, const pair<float, int> &b) { return a.first < b.first; };
     priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_max)> W(cmp_max);
 
-    // Initialize with entry points
-    for (int ep : entry_points)
-    {
-        if (visited_list[ep] != visited_tag)
-        {
-            visited_list[ep] = visited_tag;
+    for (int ep : entry_points) {
+        if (visited[ep] != tag) {
+            visited[ep] = tag;
             float dist = distance(query, &vectors[ep * dimension], dimension);
             candidates.push({dist, ep});
             W.push({dist, ep});
@@ -321,260 +159,152 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
     }
 
     float lower_bound = numeric_limits<float>::max();
+    if(!W.empty()) lower_bound = W.top().first;
 
-    while (!candidates.empty())
-    {
+    while (!candidates.empty()) {
         auto current = candidates.top();
         candidates.pop();
         float current_dist = current.first;
         int current_id = current.second;
 
-        // More aggressive early termination with lower_bound
-        if (current_dist > lower_bound)
-            break;
+        if (current_dist > lower_bound) break;
 
-        // Check neighbors - XIAOYANG CSR-style: direct pointer access (no temp vector!)
-        if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors)
-        {
-            // Use flattened Layer 0 graph - zero-copy access
+        const int* neighbors_ptr = nullptr;
+        int neighbor_count = 0;
+
+        // Optimized Access
+        if (level == 0 && !final_graph_flat.empty()) {
             int max_neighbors_l0 = 2 * M;
-            int offset = current_id * (max_neighbors_l0 + 1);
-            int neighbor_count = final_graph_flat[offset];
-            const int *neighbors_ptr = &final_graph_flat[offset + 1];
-
-            // Prefetch
-            for (int i = 0; i < min(4, neighbor_count); ++i)
-            {
-                __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
-            }
-
-            for (int i = 0; i < neighbor_count; ++i)
-            {
-                int neighbor = neighbors_ptr[i];
-
-                if (i + 4 < neighbor_count)
-                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
-
-                if (visited_list[neighbor] != visited_tag)
-                {
-                    visited_list[neighbor] = visited_tag;
-                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
-
-                    if (dist < lower_bound || W.size() < ef)
-                    {
-                        candidates.push({dist, neighbor});
-                        W.push({dist, neighbor});
-
-                        if (W.size() > ef)
-                        {
-                            W.pop();
-                        }
-
-                        if (W.size() >= ef)
-                        {
-                            lower_bound = W.top().first;
-                        }
-                    }
-                }
-            }
+            long long offset = (long long)current_id * (max_neighbors_l0 + 1);
+            neighbor_count = final_graph_flat[offset];
+            neighbors_ptr = &final_graph_flat[offset + 1];
+        } else if (level < graph.size()) {
+            const auto& vec = graph[level][current_id];
+            neighbor_count = vec.size();
+            neighbors_ptr = vec.data();
         }
-        else if (level < graph.size() && current_id < graph[level].size())
-        {
-            // Use regular graph for higher levels
-            const auto &neighbors = graph[level][current_id];
 
-            for (size_t i = 0; i < min(size_t(4), neighbors.size()); ++i)
-            {
-                __builtin_prefetch(&vectors[neighbors[i] * dimension], 0, 1);
+        // Prefetch
+        if (neighbor_count > 0) {
+            _mm_prefetch((const char*)&vectors[neighbors_ptr[0] * dimension], _MM_HINT_T0);
+            if (neighbor_count > 1) _mm_prefetch((const char*)&vectors[neighbors_ptr[1] * dimension], _MM_HINT_T0);
+        }
+
+        for (int i = 0; i < neighbor_count; ++i) {
+            int neighbor = neighbors_ptr[i];
+            
+            if (i + 2 < neighbor_count) {
+                 _mm_prefetch((const char*)&vectors[neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
             }
 
-            for (size_t i = 0; i < neighbors.size(); ++i)
-            {
-                int neighbor = neighbors[i];
+            if (visited[neighbor] != tag) {
+                visited[neighbor] = tag;
+                float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
-                if (i + 4 < neighbors.size())
-                    __builtin_prefetch(&vectors[neighbors[i + 4] * dimension], 0, 1);
+                if (dist < lower_bound || W.size() < ef) {
+                    candidates.push({dist, neighbor});
+                    W.push({dist, neighbor});
 
-                if (visited_list[neighbor] != visited_tag)
-                {
-                    visited_list[neighbor] = visited_tag;
-                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
-
-                    if (dist < lower_bound || W.size() < ef)
-                    {
-                        candidates.push({dist, neighbor});
-                        W.push({dist, neighbor});
-
-                        if (W.size() > ef)
-                        {
-                            W.pop();
-                        }
-
-                        if (W.size() >= ef)
-                        {
-                            lower_bound = W.top().first;
-                        }
+                    if (W.size() > ef) {
+                        W.pop();
+                        lower_bound = W.top().first;
+                    } else {
+                        lower_bound = W.top().first;
                     }
                 }
             }
         }
     }
 
-    // Extract results
     vector<int> result;
-    while (!W.empty())
-    {
+    result.reserve(W.size());
+    while (!W.empty()) {
         result.push_back(W.top().second);
         W.pop();
     }
-    reverse(result.begin(), result.end());
-    return result;
+    // Reverse needed because priority_queue is max heap (farthest on top)
+    // We want output to be [farthest ... closest] so we can just pop_back or similar?
+    // Usually HNSW entry points don't need strict order, but let's keep consistency
+    // Actually search_layer returns 'ef' candidates, order matters less here than final result
+    return result; 
 }
 
 void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
 {
-    if ((int)neighbors.size() <= M_level)
-        return;
+    if ((int)neighbors.size() <= M_level) return;
 
-    // Improved RobustPrune: NSG-style pruning for better graph quality
-    // Key insight: Select neighbors that are both close AND provide good routing
-
-    const int base_vertex = neighbors[0]; // Assume first is the vertex being connected
-    vector<pair<float, int>> scored_neighbors;
-    scored_neighbors.reserve(neighbors.size());
-
-    // Score each neighbor by distance (already sorted from search_layer)
-    for (int neighbor : neighbors)
-    {
-        float dist = distance(&vectors[base_vertex * dimension],
-                              &vectors[neighbor * dimension],
-                              dimension);
-        scored_neighbors.push_back({dist, neighbor});
+    // Sort by distance first
+    int start_node = neighbors[0]; // heuristic baseline
+    vector<pair<float, int>> scored;
+    scored.reserve(neighbors.size());
+    
+    for(int n : neighbors) {
+        float d = distance(&vectors[start_node*dimension], &vectors[n*dimension], dimension);
+        scored.push_back({d, n});
     }
+    sort(scored.begin(), scored.end());
 
-    // Sort by distance (closest first)
-    sort(scored_neighbors.begin(), scored_neighbors.end());
-
-    // RobustPrune: Select diverse neighbors
     vector<int> selected;
     selected.reserve(M_level);
+    if(!scored.empty()) selected.push_back(scored[0].second);
 
-    // Always keep closest neighbor
-    if (!scored_neighbors.empty())
-    {
-        selected.push_back(scored_neighbors[0].second);
-    }
+    // Alpha = 1.0 for GLOVE (Dense) to maintain recall
+    float alpha = 1.0f; 
 
-    // Select remaining with diversity constraint
-    // Fix 1: Lower alpha for GLOVE dense vectors (1.2 -> 1.0)
-    // For dense clustered data, we need more "roads to Rome" not "different directions"
-    const float alpha = 1.0f;
-
-    for (size_t i = 1; i < scored_neighbors.size() && (int)selected.size() < M_level; ++i)
-    {
-        int candidate = scored_neighbors[i].second;
-        float candidate_dist = scored_neighbors[i].first;
-        bool is_diverse = true;
-
-        // Check if candidate is diverse enough from already selected
-        for (int sel : selected)
-        {
-            float dist_to_selected = distance(&vectors[candidate * dimension],
-                                              &vectors[sel * dimension],
-                                              dimension);
-
-            // Diversity criterion: simplify division to multiplication
-            if (dist_to_selected < candidate_dist * alpha)
-            {
-                is_diverse = false;
-                break;
+    for (size_t i = 1; i < scored.size() && selected.size() < M_level; ++i) {
+        int cand = scored[i].second;
+        float dist_c = scored[i].first;
+        bool good = true;
+        
+        for (int sel : selected) {
+            float d = distance(&vectors[cand*dimension], &vectors[sel*dimension], dimension);
+            if (d < dist_c * alpha) {
+                good = false; break;
             }
         }
-
-        if (is_diverse)
-        {
-            selected.push_back(candidate);
+        if (good) selected.push_back(cand);
+    }
+    
+    // Fill if needed
+    if(selected.size() < M_level) {
+        for(auto& p : scored) {
+            if(selected.size() >= M_level) break;
+            bool found = false;
+            for(int s : selected) if(s == p.second) { found = true; break; }
+            if(!found) selected.push_back(p.second);
         }
     }
-
-    // If not enough diverse neighbors, add closest remaining ones
-    if ((int)selected.size() < M_level)
-    {
-        for (size_t i = 0; i < scored_neighbors.size(); ++i)
-        {
-            int neighbor = scored_neighbors[i].second;
-            if (find(selected.begin(), selected.end(), neighbor) == selected.end())
-            {
-                selected.push_back(neighbor);
-                if ((int)selected.size() >= M_level)
-                    break;
-            }
-        }
-    }
-
     neighbors = selected;
 }
 
 void Solution::connect_neighbors(int vertex, int level, const vector<int> &neighbors)
 {
-    // Ensure graph size
-    while (graph.size() <= level)
-    {
-        graph.push_back(vector<vector<int>>());
-    }
-
-    while (graph[level].size() <= vertex)
-    {
-        graph[level].push_back(vector<int>());
-    }
-
-    // Add connections
+    // 1. Forward connection (No lock needed, only this thread owns 'vertex')
     graph[level][vertex] = neighbors;
 
-    // Add bidirectional connections
-    int M_level = (level == 0) ? (2 * M) : M;
-    const float *vertex_vec = &vectors[vertex * dimension];
-
-    for (int neighbor : neighbors)
-    {
-        while (graph[level].size() <= neighbor)
-        {
-            graph[level].push_back(vector<int>());
-        }
-
-        auto &neighbor_connections = graph[level][neighbor];
-        if (find(neighbor_connections.begin(), neighbor_connections.end(), vertex) == neighbor_connections.end())
-        {
-            neighbor_connections.push_back(vertex);
-
-            // Simple pruning - only keep if significantly over limit
-            if (neighbor_connections.size() > M_level * 1.5)
-            {
-                // Sort by distance to neighbor before pruning
-                const float *neighbor_vec = &vectors[neighbor * dimension];
-                vector<pair<float, int>> dist_pairs;
-                dist_pairs.reserve(neighbor_connections.size());
-
-                for (int conn : neighbor_connections)
-                {
-                    float dist = distance(neighbor_vec, &vectors[conn * dimension], dimension);
-                    dist_pairs.push_back({dist, conn});
-                }
-
-                // Partial sort - only sort what we need
-                nth_element(dist_pairs.begin(),
-                            dist_pairs.begin() + M_level,
-                            dist_pairs.end());
-
-                // Keep only M_level closest
-                neighbor_connections.clear();
-                neighbor_connections.reserve(M_level);
-                for (size_t i = 0; i < M_level; ++i)
-                {
-                    neighbor_connections.push_back(dist_pairs[i].second);
-                }
+    // 2. Reverse connections (Needs lock)
+    int M_max = (level == 0) ? (2 * M) : M;
+    
+    for (int neighbor : neighbors) {
+        node_locks[neighbor].acquire();
+        
+        vector<int>& conn = graph[level][neighbor];
+        bool exists = false;
+        for(int x : conn) if(x == vertex) { exists = true; break; }
+        
+        if (!exists) {
+            conn.push_back(vertex);
+            
+            // LAZY PRUNING: Only prune if size is significantly larger than M_max
+            // This prevents the TLE caused by sorting inside the lock too often.
+            // 2.5x factor gives buffer for parallel inserts.
+            if (conn.size() > M_max * 2.5) {
+                // We must prune inside lock to maintain integrity, but we do it rarely
+                 select_neighbors_heuristic(conn, M_max);
             }
         }
+        
+        node_locks[neighbor].release();
     }
 }
 
@@ -584,92 +314,105 @@ void Solution::build(int d, const vector<float> &base)
     num_vectors = base.size() / d;
     vectors = base;
 
-    // Initialize visited_list for tag system (CRITICAL for XIAOYANG optimization)
-    visited_list.resize(num_vectors, 0);
-    visited_tag = 1;
-
-    // Auto-detect dataset and optimize parameters
-    if (dimension == 100 && num_vectors > 1000000)
-    {
-        // GLOVE: Fix 2 - Parameters for 99% recall
-        M = 32;                // Increase connectivity (from 24) -> reduce dead ends
-        ef_construction = 400; // Higher quality construction (from 250)
-        ef_search = 300;       // Higher search breadth (from 150)
-        gamma = 0.25;          // Relaxed adaptive threshold (from 0.1) -> avoid early exit
-
-        // Trade-off: M=32 significantly improves connectivity and recall
-        // gamma=0.25 allows searching slightly farther nodes to avoid missing neighbors
-    }
-    else if (dimension == 128 && num_vectors > 900000)
-    {
-        // SIFT: Fast and accurate
+    // 1. Parameter Tuning (Glove Specific)
+    if (dimension == 100 && num_vectors > 500000) {
+        M = 30;                 // Safe spot between 24 and 32
+        ef_construction = 200;  // Reduced from 300 to fix TLE
+        ef_search = 200;        // High baseline for recall
+        gamma = 0.25;           // Adaptive
+    } else {
+        // SIFT or others
         M = 16;
-        ef_construction = 100;
-        ef_search = 200;
+        ef_construction = 150;
+        ef_search = 150;
     }
 
+    // 2. Pre-allocation (Fixes Critical Section bottleneck)
+    // Pre-calculate levels
     vertex_level.resize(num_vectors);
+    max_level = 0;
+    for(int i=0; i<num_vectors; ++i) {
+        int l = random_level();
+        vertex_level[i] = l;
+        if(l > max_level) max_level = l;
+    }
+
+    // Allocate Graph
+    graph.resize(max_level + 1);
+    for(int l=0; l<=max_level; ++l) {
+        graph[l].resize(num_vectors);
+        // Reserve memory for edges to reduce re-allocations
+        int expected_M = (l==0) ? M*2 : M;
+        // Don't reserve for all, just let vector grow naturally or loop parallel
+    }
+    
+    // Allocate Locks
+    node_locks = vector<NodeLock>(num_vectors); // NodeLock default ctor handles init
+
+    // 3. Parallel Build
     entry_point.clear();
+    entry_point.push_back(0); // Start with node 0
 
-    for (int i = 0; i < num_vectors; ++i)
-    {
-        int level = random_level();
-        vertex_level[i] = level;
-
-        if (level > max_level)
-            max_level = level;
-
-        if (entry_point.empty())
-        {
-            entry_point.push_back(i);
-            continue;
+    // Important: We must add node 0 to the graph first structurally
+    // But since we pre-allocated, we can just start the loop from 1.
+    // The connections for node 0 will be populated by reverse links from others,
+    // and its forward links will be populated if we process it. 
+    // Actually standard HNSW inserts sequentially.
+    // Parallel strategy:
+    // We treat node 0 as the initial entry point.
+    
+    #pragma omp parallel for schedule(dynamic, 128)
+    for(int i = 1; i < num_vectors; ++i) {
+        int level = vertex_level[i];
+        int curr_max_level = max_level; // Snapshot
+        
+        // Use thread-local visited list inside search_layer
+        
+        vector<int> curr_ep;
+        curr_ep.push_back(0); // Always start from 0 (static entry)
+        
+        // Search down to insertion level
+        // Note: We use the 'global' entry point 0. In a true online HNSW, entry point changes.
+        // For batch build, starting from 0 is fine, or we can use a shared atomic entry point.
+        // Using fixed entry point 0 is slightly suboptimal for navigation but thread-safe and fast.
+        
+        for(int lc = curr_max_level; lc > level; --lc) {
+             curr_ep = search_layer(&vectors[i*dimension], curr_ep, 1, lc);
         }
-
-        // Search for nearest neighbors
-        vector<int> curr_neighbors = entry_point;
-
-        // Search from top to target level + 1
-        for (int lc = max_level; lc > level; --lc)
-        {
-            curr_neighbors = search_layer(&vectors[i * dimension], curr_neighbors, 1, lc);
-        }
-
-        // Insert at levels 0 to level
-        for (int lc = level; lc >= 0; --lc)
-        {
-            int M_level = (lc == 0) ? (2 * M) : M;
-            curr_neighbors = search_layer(&vectors[i * dimension], curr_neighbors, ef_construction, lc);
-
-            // Select M neighbors
-            vector<int> neighbors = curr_neighbors;
-            select_neighbors_heuristic(neighbors, M_level);
-
-            // Connect to graph
-            connect_neighbors(i, lc, neighbors);
-        }
-
-        // Update entry point
-        if (level > vertex_level[entry_point[0]])
-        {
-            entry_point[0] = i;
+        
+        for(int lc = min(curr_max_level, level); lc >= 0; --lc) {
+            int ef_c = ef_construction;
+            vector<int> candidates = search_layer(&vectors[i*dimension], curr_ep, ef_c, lc);
+            
+            // Heuristic selection
+            int M_curr = (lc==0) ? M*2 : M;
+            select_neighbors_heuristic(candidates, M_curr);
+            
+            // Update graph
+            connect_neighbors(i, lc, candidates);
+            
+            // Candidates become entry points for next layer
+            curr_ep = candidates;
         }
     }
 
-    // Optimization 3: Flatten Layer 0 for cache efficiency
-    if (!graph.empty() && !graph[0].empty())
-    {
+    // 4. Post-processing: Flatten Layer 0
+    if (!graph.empty()) {
         int max_neighbors_l0 = 2 * M;
         final_graph_flat.resize(num_vectors * (max_neighbors_l0 + 1), 0);
-
-        for (int i = 0; i < num_vectors; ++i)
-        {
-            const auto &neighbors = graph[0][i];
-            int size = neighbors.size();
-            int offset = i * (max_neighbors_l0 + 1);
-            final_graph_flat[offset] = size;
-            for (int j = 0; j < size; ++j)
-            {
-                final_graph_flat[offset + 1 + j] = neighbors[j];
+        
+        for(int i=0; i<num_vectors; ++i) {
+            auto& neighbors = graph[0][i];
+            // Final prune to ensure strict size compliance (optional but good for cache)
+            if (neighbors.size() > max_neighbors_l0) {
+                 select_neighbors_heuristic(neighbors, max_neighbors_l0);
+            }
+            
+            int sz = neighbors.size();
+            long long off = (long long)i * (max_neighbors_l0 + 1);
+            final_graph_flat[off] = sz;
+            for(int j=0; j<sz; ++j) {
+                final_graph_flat[off + 1 + j] = neighbors[j];
             }
         }
     }
@@ -682,84 +425,70 @@ void Solution::search(const vector<float> &query, int *res)
 
 void Solution::search_hnsw(const vector<float> &query, int *res)
 {
-    if (entry_point.empty())
-    {
-        for (int i = 0; i < 10; ++i)
-            res[i] = i;
-        return;
-    }
-    // Note: distance_computations is accumulated across all searches
-    // Reset in test program if needed for per-query statistics
-    const float *query_ptr = query.data();
-    vector<int> curr_neighbors = entry_point;
-
-    // Search from top level to level 1
-    for (int lc = max_level; lc > 0; --lc)
-    {
-        curr_neighbors = search_layer(query_ptr, curr_neighbors, 1, lc);
+    if (graph.empty()) {
+         for(int i=0; i<10; ++i) res[i] = 0;
+         return;
     }
 
-    // Search at layer 0 with ef_search
-    // Use NGT-inspired adaptive search if gamma > 0
-    if (gamma > 0.0)
-    {
-        curr_neighbors = search_layer_adaptive(query_ptr, curr_neighbors, ef_search, 0, gamma);
-    }
-    else
-    {
-        curr_neighbors = search_layer(query_ptr, curr_neighbors, ef_search, 0);
+    vector<int> curr_ep;
+    curr_ep.push_back(0);
+
+    for (int lc = max_level; lc > 0; --lc) {
+        curr_ep = search_layer(query.data(), curr_ep, 1, lc);
     }
 
-    // Return top 10 results
-    for (int i = 0; i < 10 && i < curr_neighbors.size(); ++i)
-    {
-        res[i] = curr_neighbors[i];
+    // Layer 0 Search
+    vector<int> candidates;
+    if (gamma > 0) {
+        candidates = search_layer_adaptive(query.data(), curr_ep, ef_search, 0, gamma);
+    } else {
+        candidates = search_layer(query.data(), curr_ep, ef_search, 0);
     }
 
-    // Fill remaining slots if needed
-    for (int i = curr_neighbors.size(); i < 10; ++i)
-    {
-        res[i] = 0;
+    // Sort candidates by distance to pick top 10
+    // candidates from search_layer are not strictly sorted by distance (they are heap popped)
+    // Wait, search_layer logic returns them popped from min-heap (farthest first) or max-heap?
+    // My search_layer pops from W (max-heap, keeps smallest). 
+    // result.push_back(W.top()); W.pop(); 
+    // So result is [farthest ... closest].
+    // We need closest first for output.
+    
+    // Sort top 10 safely
+    priority_queue<pair<float, int>> top_k;
+    for(int idx : candidates) {
+        float d = distance(query.data(), &vectors[idx*dimension], dimension);
+        top_k.push({d, idx});
+        if(top_k.size() > 10) top_k.pop();
+    }
+    
+    vector<int> final_res;
+    while(!top_k.empty()) {
+        final_res.push_back(top_k.top().second);
+        top_k.pop();
+    }
+    reverse(final_res.begin(), final_res.end());
+    
+    for(int i=0; i<10; ++i) {
+        if (i < final_res.size()) res[i] = final_res[i];
+        else res[i] = 0;
     }
 }
-
-// ==================== NGT-Inspired Adaptive Search ====================
 
 vector<int> Solution::search_layer_adaptive(const float *query, const vector<int> &entry_points,
                                             int ef, int level, float gamma_param) const
 {
-    // Optimization 2: Use tag system instead of unordered_set (3-5x faster)
-    if (visited_list.size() < num_vectors)
-    {
-        visited_list.resize(num_vectors, 0);
-        visited_tag = 1;
-    }
+    tls_visited.resize(num_vectors);
+    int tag = tls_visited.get_new_tag();
+    auto& visited = tls_visited.visited;
 
-    int tag = ++visited_tag;
-    if (tag == 0)
-    {
-        fill(visited_list.begin(), visited_list.end(), 0);
-        tag = visited_tag = 1;
-    }
-    auto &visited = visited_list;
-
-    auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b)
-    {
-        return a.first > b.first;
-    };
+    auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b) { return a.first > b.first; };
     priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_min)> candidates(cmp_min);
 
-    auto cmp_max = [](const pair<float, int> &a, const pair<float, int> &b)
-    {
-        return a.first < b.first;
-    };
+    auto cmp_max = [](const pair<float, int> &a, const pair<float, int> &b) { return a.first < b.first; };
     priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_max)> W(cmp_max);
 
-    // Initialize with entry points
-    for (int ep : entry_points)
-    {
-        if (visited[ep] != tag)
-        {
+    for (int ep : entry_points) {
+        if (visited[ep] != tag) {
             visited[ep] = tag;
             float dist = distance(query, &vectors[ep * dimension], dimension);
             candidates.push({dist, ep});
@@ -767,111 +496,53 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
         }
     }
 
-    float max_dist_threshold = W.empty() ? numeric_limits<float>::max() : W.top().first;
+    float max_dist = W.empty() ? numeric_limits<float>::max() : W.top().first;
 
-    while (!candidates.empty())
-    {
+    while (!candidates.empty()) {
         auto current = candidates.top();
         candidates.pop();
-        float current_dist = current.first;
-        int current_id = current.second;
-
-        // NGT-inspired adaptive termination
-        if (current_dist > max_dist_threshold * (1.0 + gamma_param))
-        {
-            if (W.size() >= ef)
-                break;
+        
+        if (current.first > max_dist * (1.0 + gamma_param)) {
+            if (W.size() >= ef) break;
         }
 
-        // Fix 3: Zero-copy pointer access + Prefetch (remove resize bug)
-        const int *neighbors_ptr = nullptr;
+        const int* neighbors_ptr = nullptr;
         int neighbor_count = 0;
 
-        if (level == 0 && !final_graph_flat.empty() && current_id < num_vectors)
-        {
-            // Layer 0: Flat array access (Zero Copy)
+        if (level == 0 && !final_graph_flat.empty()) {
             int max_neighbors_l0 = 2 * M;
-            long long offset = (long long)current_id * (max_neighbors_l0 + 1); // Prevent overflow
+            long long offset = (long long)current.second * (max_neighbors_l0 + 1);
             neighbor_count = final_graph_flat[offset];
             neighbors_ptr = &final_graph_flat[offset + 1];
-
-            // Prefetch logic
-            for (int i = 0; i < min(4, neighbor_count); ++i)
-            {
-                __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
-            }
-
-            for (int i = 0; i < neighbor_count; ++i)
-            {
-                int neighbor = neighbors_ptr[i];
-
-                // Pipeline prefetch
-                if (i + 4 < neighbor_count)
-                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
-
-                if (visited[neighbor] != tag)
-                {
-                    visited[neighbor] = tag;
-                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
-
-                    if (dist < max_dist_threshold * (1.0 + gamma_param) || W.size() < ef)
-                    {
-                        candidates.push({dist, neighbor});
-                        W.push({dist, neighbor});
-
-                        if (W.size() > ef)
-                        {
-                            W.pop();
-                            max_dist_threshold = W.top().first;
-                        }
-                        else
-                        {
-                            max_dist_threshold = W.top().first;
-                        }
-                    }
-                }
-            }
+        } else if (level < graph.size()) {
+            const auto& vec = graph[level][current.second];
+            neighbor_count = vec.size();
+            neighbors_ptr = vec.data();
         }
-        else if (level < graph.size() && current_id < graph[level].size())
-        {
-            // Higher layers: Vector access
-            const auto &vec_ref = graph[level][current_id];
-            neighbor_count = vec_ref.size();
-            neighbors_ptr = vec_ref.data();
 
-            // Prefetch logic
-            for (int i = 0; i < min(4, neighbor_count); ++i)
-            {
-                __builtin_prefetch(&vectors[neighbors_ptr[i] * dimension], 0, 1);
-            }
+        // Prefetching
+        for(int i=0; i<min(4, neighbor_count); ++i) 
+            _mm_prefetch((const char*)&vectors[neighbors_ptr[i]*dimension], _MM_HINT_T0);
 
-            for (int i = 0; i < neighbor_count; ++i)
-            {
-                int neighbor = neighbors_ptr[i];
+        for (int i = 0; i < neighbor_count; ++i) {
+            int neighbor = neighbors_ptr[i];
+            
+            if(i+4 < neighbor_count)
+                _mm_prefetch((const char*)&vectors[neighbors_ptr[i+4]*dimension], _MM_HINT_T0);
+            
+            if (visited[neighbor] != tag) {
+                visited[neighbor] = tag;
+                float dist = distance(query, &vectors[neighbor * dimension], dimension);
 
-                // Pipeline prefetch
-                if (i + 4 < neighbor_count)
-                    __builtin_prefetch(&vectors[neighbors_ptr[i + 4] * dimension], 0, 1);
+                if (dist < max_dist * (1.0 + gamma_param) || W.size() < ef) {
+                    candidates.push({dist, neighbor});
+                    W.push({dist, neighbor});
 
-                if (visited[neighbor] != tag)
-                {
-                    visited[neighbor] = tag;
-                    float dist = distance(query, &vectors[neighbor * dimension], dimension);
-
-                    if (dist < max_dist_threshold * (1.0 + gamma_param) || W.size() < ef)
-                    {
-                        candidates.push({dist, neighbor});
-                        W.push({dist, neighbor});
-
-                        if (W.size() > ef)
-                        {
-                            W.pop();
-                            max_dist_threshold = W.top().first;
-                        }
-                        else
-                        {
-                            max_dist_threshold = W.top().first;
-                        }
+                    if (W.size() > ef) {
+                        W.pop();
+                        max_dist = W.top().first;
+                    } else {
+                        max_dist = W.top().first;
                     }
                 }
             }
@@ -879,113 +550,12 @@ vector<int> Solution::search_layer_adaptive(const float *query, const vector<int
     }
 
     vector<int> result;
-    while (!W.empty())
-    {
+    while (!W.empty()) {
         result.push_back(W.top().second);
         W.pop();
     }
-    reverse(result.begin(), result.end());
     return result;
 }
 
-// ==================== Graph Caching for Fast Parameter Tuning ====================
-
-bool Solution::save_graph(const string &filename) const
-{
-    ofstream out(filename, ios::binary);
-    if (!out.is_open())
-        return false;
-
-    // Write metadata
-    out.write((char *)&dimension, sizeof(int));
-    out.write((char *)&num_vectors, sizeof(int));
-    out.write((char *)&M, sizeof(int));
-    out.write((char *)&ef_construction, sizeof(int));
-    out.write((char *)&max_level, sizeof(int));
-
-    // Write entry point
-    int ep_size = entry_point.size();
-    out.write((char *)&ep_size, sizeof(int));
-    if (ep_size > 0)
-        out.write((char *)entry_point.data(), ep_size * sizeof(int));
-
-    // Write vertex levels
-    out.write((char *)vertex_level.data(), num_vectors * sizeof(int));
-
-    // Write graph structure
-    int num_levels = graph.size();
-    out.write((char *)&num_levels, sizeof(int));
-
-    for (int level = 0; level < num_levels; ++level)
-    {
-        int level_size = graph[level].size();
-        out.write((char *)&level_size, sizeof(int));
-
-        for (int vid = 0; vid < level_size; ++vid)
-        {
-            int neighbor_count = graph[level][vid].size();
-            out.write((char *)&neighbor_count, sizeof(int));
-            if (neighbor_count > 0)
-                out.write((char *)graph[level][vid].data(), neighbor_count * sizeof(int));
-        }
-    }
-
-    // Write vectors
-    out.write((char *)vectors.data(), vectors.size() * sizeof(float));
-
-    out.close();
-    return true;
-}
-
-bool Solution::load_graph(const string &filename)
-{
-    ifstream in(filename, ios::binary);
-    if (!in.is_open())
-        return false;
-
-    // Read metadata
-    in.read((char *)&dimension, sizeof(int));
-    in.read((char *)&num_vectors, sizeof(int));
-    in.read((char *)&M, sizeof(int));
-    in.read((char *)&ef_construction, sizeof(int));
-    in.read((char *)&max_level, sizeof(int));
-
-    // Read entry point
-    int ep_size;
-    in.read((char *)&ep_size, sizeof(int));
-    entry_point.resize(ep_size);
-    if (ep_size > 0)
-        in.read((char *)entry_point.data(), ep_size * sizeof(int));
-
-    // Read vertex levels
-    vertex_level.resize(num_vectors);
-    in.read((char *)vertex_level.data(), num_vectors * sizeof(int));
-
-    // Read graph structure
-    int num_levels;
-    in.read((char *)&num_levels, sizeof(int));
-    graph.resize(num_levels);
-
-    for (int level = 0; level < num_levels; ++level)
-    {
-        int level_size;
-        in.read((char *)&level_size, sizeof(int));
-        graph[level].resize(level_size);
-
-        for (int vid = 0; vid < level_size; ++vid)
-        {
-            int neighbor_count;
-            in.read((char *)&neighbor_count, sizeof(int));
-            graph[level][vid].resize(neighbor_count);
-            if (neighbor_count > 0)
-                in.read((char *)graph[level][vid].data(), neighbor_count * sizeof(int));
-        }
-    }
-
-    // Read vectors
-    vectors.resize(num_vectors * dimension);
-    in.read((char *)vectors.data(), vectors.size() * sizeof(float));
-
-    in.close();
-    return true;
-}
+bool Solution::save_graph(const string &filename) const { return false; }
+bool Solution::load_graph(const string &filename) { return false; }
