@@ -1363,3 +1363,113 @@ bool Solution::load_graph(const string &filename) { return false; }
 
 
 ```
+
+# 第五步优化
+这是一个非常清晰的测试结果。让我们解读一下：
+
+1. **构建时间（Build Time）：** 414秒（约7分钟）。**非常好**。你还有大量的预算（限制是2000秒），这意味着我们可以**牺牲构建时间来换取搜索质量**。
+2. **搜索时间（Search Time）：** 19.92 ms。**太慢了**。目标通常是 1-5 ms。
+3. **召回率（Recall）：** 98.1%。**刚好及格**。在追求速度时很容易掉到98%以下。
+
+**核心问题诊断：**
+目前 `alpha=1.0`（无多样性剪枝）导致图变得“臃肿”。虽然这保住了召回率，但导致搜索时需要遍历太多的点（因为没有长边/Highways跳过区域），所以速度慢。
+
+**优化策略：**
+我们要利用那剩余的 1500秒 构建预算，把图建得非常精细，从而在搜索时能用更少的步数找到目标。
+
+请按以下步骤修改 `MySolution.h` 和 `MySolution.cpp`。
+
+### 第一步：修改参数 (MySolution.cpp)
+
+我们需要大幅提高 `ef_construction`（反正时间够），并稍微调回 `alpha` 以引入多样性，同时降低 `ef_search` 来提速。
+
+在 `MySolution.cpp` 的 `build` 函数中，找到 GLOVE 的配置部分，替换为：
+
+```cpp
+    // 在 build 函数中修改 GLOVE 参数
+    if (dimension == 100 && num_vectors > 500000)
+    {
+        // GLOVE 终极调优：利用充裕的构建时间换取极致的搜索速度
+        M = 32;                 // 保持高连接数
+        ef_construction = 500;  // 🔴 大幅增加 (原 200)。构建会变慢，但图质量会极高
+        ef_search = 120;        // 🔴 大幅降低 (原 200)。依赖高质量图，我们可以减少搜索步数
+        gamma = 0.22;           // 微调自适应阈值
+    }
+
+```
+
+### 第二步：恢复多样性剪枝 (MySolution.cpp)
+
+在 `select_neighbors_heuristic` 函数中，将 `alpha` 从 `1.0` 改为 `1.15`。这能让图产生“高速公路”，显著提升搜索速度。
+
+```cpp
+void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
+{
+    // ... 前面的代码不变 ...
+
+    // 🔴 关键修改：恢复适度的 Alpha (1.0 -> 1.15)
+    // 1.0 虽然召回高，但导致图没有导航性（Highways），搜索极慢。
+    // 1.15 是一个平衡点，配合 ef_construction=500 可以维持召回率。
+    const float alpha = 1.15f; 
+
+    // ... 后面的循环逻辑不变 ...
+}
+
+```
+
+### 第三步：修复统计计数器 (MySolution.h)
+
+你的测试输出显示 `Total distance computations: 0`，这是因为多线程下普通的 `long long` 没法正确计数。为了方便你调试（看看到底计算了多少次距离），我们把它改成原子变量。
+
+**在 `MySolution.h` 中：**
+
+```cpp
+#include <atomic> // 确保包含这个头文件
+
+// 将 distance_computations 的定义修改为：
+mutable std::atomic<long long> distance_computations;
+
+```
+
+**在 `MySolution.cpp` 的构造函数中：**
+
+```cpp
+// 初始化
+distance_computations.store(0);
+
+```
+
+**在 `MySolution.cpp` 的 `distance` 函数中：**
+
+```cpp
+// 修改计数方式
+// ++distance_computations; // 原来的非原子操作
+distance_computations.fetch_add(1, std::memory_order_relaxed); // 原子操作
+
+```
+
+### 第四步：微调搜索时的预取 (MySolution.cpp)
+
+在 `search_layer` 和 `search_layer_adaptive` 中，将预取（prefetch）步长从 4 增加到 6。Glove 100维向量较大，增加预取距离可能有助于掩盖内存延迟。
+
+找到 `__builtin_prefetch` 或 `_mm_prefetch` 的地方：
+
+```cpp
+// 在 search_layer 和 search_layer_adaptive 的循环中
+// 原来是 i + 4，尝试改为 i + 6
+if (i + 6 < neighbor_count)
+    _mm_prefetch((const char*)&vectors[neighbors_ptr[i + 6] * dimension], _MM_HINT_T0);
+
+```
+
+---
+
+### 预期结果
+
+执行以上修改后，你的下一次测试应该会出现以下变化：
+
+1. **Build Time:** 会增加到 800-1000秒左右（仍然符合 <2000s 要求）。
+2. **Search Time:** 应该会从 ~20ms 骤降到 **3-6ms** 左右。
+3. **Recall:** 应该维持在 98.5% - 99% 之间（得益于 `ef_construction=500`）。
+
+**请执行上述修改并重新运行测试。**
