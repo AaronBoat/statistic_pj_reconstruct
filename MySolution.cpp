@@ -136,6 +136,20 @@ inline float Solution::distance(const float *a, const float *b, int dim) const
 #endif
 }
 
+// 第八批优化：部分距离计算（用于早期剪枝，不计入统计）
+inline float Solution::partial_distance(const float *a, const float *b, int dim) const
+{
+    // 仅计算前16维距离进行快速失败检测
+    const int check_dim = min(dim, 16);
+    float dist = 0;
+    for (int i = 0; i < check_dim; ++i)
+    {
+        float d = a[i] - b[i];
+        dist += d * d;
+    }
+    return dist;
+}
+
 int Solution::random_level()
 {
     double r = (double)rng() / (double)rng.max();
@@ -203,18 +217,34 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
             {
                 int nid = neighbors_ptr[i];
 
-                // 流水线预取：提前 2 个邻居预取向量数据
-                if (i + 2 < neighbor_count)
+                // 流水线预取：提前 4 个邻居预取向量数据（比 2 更积极）
+                if (i + 4 < neighbor_count)
                 {
-                    _mm_prefetch((const char *)&vectors[neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
+                    _mm_prefetch((const char *)&vectors[neighbors_ptr[i + 4] * dimension], _MM_HINT_T0);
                 }
 
                 if (visited[nid] != tag)
                 {
+                    // 1. Visited 标记
                     visited[nid] = tag;
+                    
+                    // 获取当前 W 中最远点的距离
+                    float max_dist_in_W = W_size >= ef ? W[ef - 1].dist : numeric_limits<float>::max();
+
+                    // 2. 🔴 早期剪枝（第八批关键优化）
+                    // 仅计算前 16 维距离。如果部分距离已远超 W 中最远距离，则跳过完整的 distance() 计算。
+                    float partial_d = partial_distance(query, &vectors[nid * dimension], dimension);
+                    
+                    // 剪枝阈值：使用1.5倍容错，避免过度剪枝损害召回率
+                    // 只有在部分距离明显超过最差距离时才跳过
+                    if (W_size >= ef && partial_d > max_dist_in_W * 1.5f) {
+                        continue; 
+                    }
+
+                    // 3. 完整的 distance 计算（计入统计）
                     float d = distance(query, &vectors[nid * dimension], dimension);
 
-                    // 判断是否需要插入候选集
+                    // 4. 插入排序和回溯逻辑
                     if (W_size < ef || d < W[min(W_size, ef) - 1].dist)
                     {
                         // 插入排序保持 W 有序（比堆操作更适合小规模 ef）

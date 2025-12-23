@@ -66,6 +66,9 @@ private:
 
     // Distance calculation
     inline float distance(const float *a, const float *b, int dim) const;
+    
+    // 第八批优化：用于早期剪枝的部分距离计算
+    inline float partial_distance(const float *a, const float *b, int dim) const;
 
     // HNSW methods
     int random_level();
