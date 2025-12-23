@@ -154,6 +154,102 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
     int tag = tls_visited.get_new_tag();
     auto &visited = tls_visited.visited;
 
+    // === 第七批优化：Layer 0 极致性能路径 ===
+    // 针对 Layer 0（搜索瓶颈所在），使用固定数组替代优先队列，减少堆操作开销
+    if (level == 0 && !final_graph_flat.empty())
+    {
+        // 固定大小候选池（避免动态内存分配）
+        struct Candidate
+        {
+            float dist;
+            int id;
+        };
+        Candidate W[512]; // 足够容纳 ef_search（通常200）
+        int W_size = 0;
+
+        // 初始化候选集
+        for (int ep : entry_points)
+        {
+            if (visited[ep] != tag)
+            {
+                visited[ep] = tag;
+                float d = distance(query, &vectors[ep * dimension], dimension);
+                W[W_size++] = {d, ep};
+            }
+        }
+
+        // 排序保持候选集有序（小根堆效果）
+        sort(W, W + W_size, [](const Candidate &a, const Candidate &b) { return a.dist < b.dist; });
+
+        int curr_pos = 0; // 当前正在探测的节点在 W 中的位置
+
+        while (curr_pos < W_size && curr_pos < ef)
+        {
+            // 取得当前最近且未探测的点
+            Candidate current = W[curr_pos++];
+
+            // 提前终止：当前点比第 ef 个点慢太多，不需要继续
+            if (W_size >= ef && current.dist > W[ef - 1].dist * 1.05f)
+                break;
+
+            // 快速访问 Layer 0 扁平化邻居
+            int max_neighbors_l0 = 2 * M;
+            long long offset = (long long)current.id * (max_neighbors_l0 + 1);
+            int neighbor_count = final_graph_flat[offset];
+            const int *neighbors_ptr = &final_graph_flat[offset + 1];
+
+            // 批量预取后续邻居的向量数据
+            for (int i = 0; i < neighbor_count; ++i)
+            {
+                int nid = neighbors_ptr[i];
+
+                // 流水线预取：提前 2 个邻居预取向量数据
+                if (i + 2 < neighbor_count)
+                {
+                    _mm_prefetch((const char *)&vectors[neighbors_ptr[i + 2] * dimension], _MM_HINT_T0);
+                }
+
+                if (visited[nid] != tag)
+                {
+                    visited[nid] = tag;
+                    float d = distance(query, &vectors[nid * dimension], dimension);
+
+                    // 判断是否需要插入候选集
+                    if (W_size < ef || d < W[min(W_size, ef) - 1].dist)
+                    {
+                        // 插入排序保持 W 有序（比堆操作更适合小规模 ef）
+                        int insert_pos = min(W_size, ef);
+                        while (insert_pos > 0 && W[insert_pos - 1].dist > d)
+                        {
+                            if (insert_pos < 512)
+                                W[insert_pos] = W[insert_pos - 1];
+                            insert_pos--;
+                        }
+
+                        if (insert_pos < ef)
+                        {
+                            W[insert_pos] = {d, nid};
+                            if (W_size < ef)
+                                W_size++;
+
+                            // 贪婪指针回溯：如果插入的位置比当前处理位置更近，重置探索指针
+                            if (insert_pos < curr_pos)
+                                curr_pos = insert_pos;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 构造结果
+        vector<int> result;
+        result.reserve(min(W_size, ef));
+        for (int i = 0; i < min(W_size, ef); ++i)
+            result.push_back(W[i].id);
+        return result;
+    }
+
+    // === 非 Layer 0 层保持原有逻辑（优先队列） ===
     auto cmp_min = [](const pair<float, int> &a, const pair<float, int> &b)
     { return a.first > b.first; };
     priority_queue<pair<float, int>, vector<pair<float, int>>, decltype(cmp_min)> candidates(cmp_min);
@@ -190,15 +286,7 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         const int *neighbors_ptr = nullptr;
         int neighbor_count = 0;
 
-        // Optimized Access
-        if (level == 0 && !final_graph_flat.empty())
-        {
-            int max_neighbors_l0 = 2 * M;
-            long long offset = (long long)current_id * (max_neighbors_l0 + 1);
-            neighbor_count = final_graph_flat[offset];
-            neighbors_ptr = &final_graph_flat[offset + 1];
-        }
-        else if (level < graph.size())
+        if (level < graph.size())
         {
             const auto &vec = graph[level][current_id];
             neighbor_count = vec.size();
@@ -253,10 +341,6 @@ vector<int> Solution::search_layer(const float *query, const vector<int> &entry_
         result.push_back(W.top().second);
         W.pop();
     }
-    // Reverse needed because priority_queue is max heap (farthest on top)
-    // We want output to be [farthest ... closest] so we can just pop_back or similar?
-    // Usually HNSW entry points don't need strict order, but let's keep consistency
-    // Actually search_layer returns 'ef' candidates, order matters less here than final result
     return result;
 }
 
@@ -265,7 +349,8 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
     if ((int)neighbors.size() <= M_level)
         return;
 
-    if (neighbors.empty()) return;
+    if (neighbors.empty())
+        return;
 
     // Sort by distance first
     int start_node = neighbors[0]; // heuristic baseline
@@ -284,7 +369,8 @@ void Solution::select_neighbors_heuristic(vector<int> &neighbors, int M_level)
     if (!scored.empty())
         selected.push_back(scored[0].second);
 
-    // Alpha = 1.0 for GLOVE (Dense) to maintain recall
+    // 最终稳定配置：alpha=1.0
+    // 经过测试，alpha>1.0会导致不稳定，保持1.0最安全
     const float alpha = 1.0f;
 
     for (size_t i = 1; i < scored.size() && selected.size() < M_level; ++i)
